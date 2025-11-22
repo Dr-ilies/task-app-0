@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # Service 4: Base de Données PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: tasks_db
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_DB: ${DB_NAME:-tasksdb}
+    ports:
+      - "5432:5432" # Expose sur l'hôte pour débugger (optionnel)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Service 1: API d'Authentification
+  auth-api:
+    build: ./auth-api
+    container_name: auth_api
+    environment:
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-un_secret_tres_fort_a_changer}
+    ports:
+      - "8001:8000" # Hôte:Conteneur
+    volumes:
+      - ./auth-api:/app # Monte le code local pour le développement
+    depends_on:
+      - db # Ne démarre pas avant que la DB soit (théoriquement) prête
+    
+  # Service 2: API de Tâches
+  tasks-api:
+    build: ./tasks-api
+    container_name: tasks_api
+    environment:
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-password}
+      - DB_HOST=db # Important: utilise le nom du service 'db'
+      - DB_NAME=${DB_NAME:-tasksdb}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-un_secret_tres_fort_a_changer}
+    ports:
+      - "8002:8000" # Hôte:Conteneur
+    volumes:
+      - ./tasks-api:/app # Monte le code local pour le développement
+    depends_on:
+      db:
+        condition: service_healthy # Attend que le healthcheck de la DB passe
+
+  # Service 3: Frontend (Nginx)
+  frontend:
+    build: ./frontend
+    container_name: frontend_web
+    ports:
+      - "8080:80" # Notre app est accessible sur http://localhost:8080
+    depends_on:
+      - auth-api
+      - tasks-api
+
+# Définition du volume nommé pour la persistance
+volumes:
+  postgres_data:
+    # Si 'driver: local' n'est pas spécifié, c'est le défaut.
+    # Les données seront stockées dans un volume géré par Docker.

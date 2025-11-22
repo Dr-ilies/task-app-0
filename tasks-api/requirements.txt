@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+pyjwt
+python-jose
+sqlalchemy
+psycopg2-binary  # Driver PostgreSQL

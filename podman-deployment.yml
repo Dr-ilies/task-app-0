@@ -1,0 +1,204 @@
+# Podman Kube Play YAML for the Task App
+#
+# This file defines the Kubernetes resources needed to run the application with 'podman kube play'.
+#
+# Before you can use this file, you need to build the container images for the services:
+#
+# podman build -t auth-api:latest -f auth-api/Dockerfile ./auth-api
+# podman build -t tasks-api:latest -f tasks-api/Dockerfile ./tasks-api
+# podman build -t frontend:latest -f frontend/Dockerfile ./frontend
+#
+# After building the images, you can deploy the application with:
+#
+# 
+# podman kube play podman-deployment.yml
+#
+# The application will be available at http://localhost:8080. // not on windows use the command // wsl ip addr show eth0 | findstr "inet " // to find the wsl local IP
+#
+# To stop and remove the pod:
+#
+# podman kube down podman-deployment.yml
+#
+
+# --- PostgreSQL Database ---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          env:
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              value: "password"
+            - name: POSTGRES_DB
+              value: "tasksdb"
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+spec:
+  selector:
+    app: db
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+
+# --- Authentication API ---
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-api-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auth-api
+  template:
+    metadata:
+      labels:
+        app: auth-api
+    spec:
+      containers:
+        - name: auth-api
+          image: auth-api:latest
+          imagePullPolicy: Never # Use local image
+          env:
+            - name: JWT_SECRET_KEY
+              value: "un_secret_tres_fort_a_changer"
+          ports:
+            - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-api
+spec:
+  selector:
+    app: auth-api
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+
+# --- Tasks API ---
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tasks-api-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tasks-api
+  template:
+    metadata:
+      labels:
+        app: tasks-api
+    spec:
+      containers:
+        - name: tasks-api
+          image: tasks-api:latest
+          imagePullPolicy: Never # Use local image
+          env:
+            - name: DB_USER
+              value: "postgres"
+            - name: DB_PASSWORD
+              value: "password"
+            - name: DB_HOST
+              value: "db"
+            - name: DB_NAME
+              value: "tasksdb"
+            - name: JWT_SECRET_KEY
+              value: "un_secret_tres_fort_a_changer"
+          ports:
+            - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tasks-api
+spec:
+  selector:
+    app: tasks-api
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+
+# --- Frontend ---
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: frontend:latest
+          imagePullPolicy: Never # Use local image
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  selector:
+    app: frontend
+  type: NodePort
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+      nodePort: 30080

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion de Tâches</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        .container { max-width: 600px; margin: auto; }
+        .hidden { display: none; }
+        input { margin-bottom: 10px; width: 100%; padding: 8px; box-sizing: border-box; }
+        button { padding: 10px 15px; }
+        ul { list-style: none; padding: 0; }
+        li { padding: 8px; border-bottom: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Gestion de Tâches</h1>
+
+        <!-- Section Login/Register -->
+        <div id="auth-section">
+            <h2>Connexion / Inscription</h2>
+            <input type="text" id="username" placeholder="Nom d'utilisateur">
+            <input type="password" id="password" placeholder="Mot de passe">
+            <button id="login-btn">Connexion</button>
+            <button id="register-btn">Inscription</button>
+            <p id="auth-msg"></p>
+        </div>
+
+        <!-- Section Tâches (cachée par défaut) -->
+        <div id="tasks-section" class="hidden">
+            <h2>Mes Tâches</h2>
+            <button id="logout-btn" style="float: right;">Déconnexion</button>
+            <div id="new-task">
+                <input type="text" id="task-title" placeholder="Nouvelle tâche">
+                <button id="add-task-btn">Ajouter</button>
+            </div>
+            <ul id="tasks-list"></ul>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

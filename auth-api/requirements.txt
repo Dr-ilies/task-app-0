@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+# passlib[bcrypt] <-- Remplacé par les deux lignes ci-dessous
+passlib
+bcrypt<4.0
+pyjwt
+python-jose
+sqlalchemy
+python-multipart
