@@ -1,0 +1,205 @@
+import time
+import os
+from fastapi import FastAPI, Depends, HTTPException, status
+#from fastapi.security import OAuth2Bearer
+from fastapi.security import OAuth2PasswordBearer
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+from jose import JWTError, jwt
+
+
+# --- Configuration ---
+# Variables d'environnement pour la connexion DB
+DB_USER = os.environ.get("DB_USER", "postgres")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "password")
+DB_HOST = os.environ.get("DB_HOST", "db") # 'db' est le nom du service dans docker-compose
+DB_PORT = os.environ.get("DB_PORT", "5432")
+DB_NAME = os.environ.get("DB_NAME", "tasksdb")
+
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+# Clé secrète JWT (doit être la MÊME que celle de auth-api)
+SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "un_secret_tres_fort_a_changer")
+ALGORITHM = "HS256"
+
+Base = declarative_base()
+engine = None
+SessionLocal = None
+
+# Attente active pour la DB (simple pour le TP, en prod utiliser "depends_on" ou un script)
+max_retries = 10
+retry_delay = 5
+for i in range(max_retries):
+    try:
+        engine = create_engine(DATABASE_URL)
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        Base.metadata.create_all(bind=engine)
+        print("Connexion à la base de données réussie.")
+        break
+    except Exception as e:
+        print(f"Attente de la base de données... ({i+1}/{max_retries}). Erreur: {e}")
+        time.sleep(retry_delay)
+
+if engine is None:
+    print("Échec de la connexion à la base de données après plusieurs tentatives.")
+    exit(1)
+
+
+app = FastAPI()
+#oauth2_scheme = OAuth2Bearer(tokenUrl="token") # L'URL n'est pas utilisée ici
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token") # L'URL n'est pas utilisée ici
+
+# --- Modèles de Données (Task) ---
+class Task(Base):
+    __tablename__ = "tasks"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, index=True)
+    completed = Column(Boolean, default=False)
+    owner = Column(String, index=True) # Username du propriétaire
+
+class TaskCreate(BaseModel):
+    title: str
+
+class TaskUpdate(BaseModel):
+    title: str
+    completed: bool
+
+class TaskOut(BaseModel):
+    id: int
+    title: str
+    completed: bool
+    owner: str
+
+    model_config = ConfigDict(from_attributes=True) # <-- Remplacement pour Pydantic v2
+
+    #class Config:   #      <-- ANCIENNE METHODE
+    #    orm_mode = True # Permet de mapper le modèle SQLAlchemy
+
+# --- Dépendance DB ---
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# --- Dépendance d'authentification (validation JWT) ---
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        return username
+    except JWTError:
+        raise credentials_exception
+
+# --- Endpoints CRUD pour les Tâches ---
+@app.post("/tasks", response_model=TaskOut, status_code=status.HTTP_201_CREATED)
+def create_task(
+    task: TaskCreate, 
+    db: Session = Depends(get_db), 
+    current_user: str = Depends(get_current_user)
+):
+    db_task = Task(title=task.title, owner=current_user, completed=False)
+    db.add(db_task)
+    db.commit()
+    db.refresh(db_task)
+    return db_task
+
+@app.get("/tasks", response_model=list[TaskOut])
+def read_tasks(
+    db: Session = Depends(get_db), 
+    current_user: str = Depends(get_current_user)
+):
+    tasks = db.query(Task).filter(Task.owner == current_user).all()
+    return tasks
+
+@app.get("/tasks/{task_id}", response_model=TaskOut)
+def read_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user)
+):
+    """
+    Récupère une tâche spécifique par ID.
+    Vérifie que la tâche appartient bien à l'utilisateur connecté.
+    """
+    db_task = db.query(Task).filter(Task.id == task_id).first()
+    if db_task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if db_task.owner != current_user:
+        raise HTTPException(status_code=403, detail="Not authorized to access this task")
+    return db_task
+
+# --- NOUVELLE FONCTIONNALITÉ (PARTIE 4) ---
+@app.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user)
+):
+    """
+    Supprime une tâche par ID.
+    Vérifie que la tâche appartient bien à l'utilisateur connecté avant de la supprimer.
+    """
+    db_task = db.query(Task).filter(Task.id == task_id).first()
+
+    if db_task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if db_task.owner != current_user:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this task")
+
+    db.delete(db_task)
+    db.commit()
+    return
+
+# --- NOUVELLE FONCTIONNALITÉ (PARTIE 6) ---
+@app.put("/tasks/{task_id}", response_model=TaskOut)
+def update_task(
+    task_id: int,
+    task: TaskUpdate,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(get_current_user)
+):
+    """
+    Met à jour une tâche par ID (titre et statut complété).
+    Vérifie que la tâche appartient bien à l'utilisateur connecté avant de la mettre à jour.
+    """
+    db_task = db.query(Task).filter(Task.id == task_id).first()
+
+    if db_task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if db_task.owner != current_user:
+        raise HTTPException(status_code=403, detail="Not authorized to update this task")
+
+    # Mettre à jour les champs
+    db_task.title = task.title
+    db_task.completed = task.completed
+
+    db.commit()
+    db.refresh(db_task)
+    return db_task
+
+@app.on_event("startup")
+def on_startup():
+    # Créer les tables au démarrage de l'application
+    Base.metadata.create_all(bind=engine)
+
+if __name__ == "__main__":
+    import uvicorn
+    # Cette vérification est redondante avec le check au démarrage, mais bonne pratique
+    if SessionLocal is None:
+        print("L'application ne peut pas démarrer, échec de la connexion à la DB.")
+    else:
+        print("Démarrage du serveur Uvicorn...")
+        uvicorn.run(app, host="0.0.0.0", port=8002)

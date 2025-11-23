@@ -5,21 +5,95 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestion de Tâches</title>
     <style>
-        body { font-family: sans-serif; margin: 2em; }
-        .container { max-width: 600px; margin: auto; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; background-color: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .container { max-width: 600px; margin: auto; background-color: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); padding: 2em; }
         .hidden { display: none; }
-        input { margin-bottom: 10px; width: 100%; padding: 8px; box-sizing: border-box; }
-        button { padding: 10px 15px; }
-        ul { list-style: none; padding: 0; }
-        li { padding: 8px; border-bottom: 1px solid #ccc; }
+        h1, h2 { text-align: center; color: #333; }
+        input[type="text"], input[type="password"] { 
+            margin-bottom: 12px; 
+            width: 100%; 
+            padding: 12px; 
+            box-sizing: border-box; 
+            border: 1px solid #ddd; 
+            border-radius: 6px; 
+        }
+        button { 
+            padding: 12px 18px; 
+            border: none; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            font-weight: 600; 
+            transition: background-color 0.2s; 
+        }
+        #login-btn { background-color: #007bff; color: white; }
+        #login-btn:hover { background-color: #0056b3; }
+        #register-btn { background-color: #6c757d; color: white; margin-left: 8px; }
+        #register-btn:hover { background-color: #5a6268; }
+        #logout-btn { background-color: #dc3545; color: white; float: right; }
+        #logout-btn:hover { background-color: #c82333; }
+        #add-task-btn { background-color: #28a745; color: white; width: 100%; margin-top: 8px; }
+        #add-task-btn:hover { background-color: #218838; }
+        
+        #new-task-form { display: flex; margin-bottom: 1em; }
+        #new-task-form input { flex-grow: 1; margin-bottom: 0; }
+        #new-task-form button { margin-left: 8px; background-color: #28a745; color: white; }
+        #new-task-form button:hover { background-color: #218838; }
+        
+        ul { list-style: none; padding: 0; margin-top: 1em; }
+        li { 
+            padding: 12px; 
+            border-bottom: 1px solid #eee; 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between; 
+        }
+        li:last-child { border-bottom: none; }
+        
+        .task-checkbox { margin-right: 12px; }
+        .task-title { 
+            flex-grow: 1; 
+            cursor: pointer; 
+            transition: color 0.2s; 
+            margin-right: 10px;
+        }
+        .task-title:hover { color: #007bff; }
+        .task-title.completed { text-decoration: line-through; color: #888; }
+        
+        .delete-btn { 
+            background-color: transparent; 
+            color: #dc3545; 
+            border: 1px solid #dc3545;
+            padding: 6px 10px;
+            font-size: 0.9em;
+            margin-left: 8px;
+            flex-shrink: 0; /* Empêche le bouton d'être écrasé */
+        }
+        .delete-btn:hover { background-color: #dc3545; color: white; }
+
+        .edit-input { 
+            flex-grow: 1; 
+            padding: 8px; 
+            border: 1px solid #007bff; 
+            border-radius: 4px; 
+            font: inherit; 
+        }
+
+        #auth-msg, #task-msg { 
+            text-align: center; 
+            padding: 10px; 
+            border-radius: 6px; 
+            margin-top: 1em; 
+            font-weight: 500;
+        }
+        #auth-msg:not(:empty) { background-color: #f8d7da; color: #721c24; }
+        #task-msg:not(:empty) { background-color: #d4edda; color: #155724; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Gestion de Tâches</h1>
-
         <!-- Section Login/Register -->
         <div id="auth-section">
+            <h1>Gestion de Tâches</h1>
             <h2>Connexion / Inscription</h2>
             <input type="text" id="username" placeholder="Nom d'utilisateur">
             <input type="password" id="password" placeholder="Mot de passe">
@@ -30,16 +104,309 @@
 
         <!-- Section Tâches (cachée par défaut) -->
         <div id="tasks-section" class="hidden">
+            <button id="logout-btn">Déconnexion</button>
             <h2>Mes Tâches</h2>
-            <button id="logout-btn" style="float: right;">Déconnexion</button>
             <div id="new-task">
-                <input type="text" id="task-title" placeholder="Nouvelle tâche">
-                <button id="add-task-btn">Ajouter</button>
+                <div id="new-task-form">
+                    <input type="text" id="task-title" placeholder="Nouvelle tâche...">
+                    <button id="add-task-btn">Ajouter</button>
+                </div>
             </div>
-            <ul id="tasks-list"></ul>
+            <p id="task-msg"></p>
+            <ul id="tasks-list">
+                <!-- Les tâches seront insérées ici par JS -->
+            </ul>
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script>
+        // URLs des API
+        // Note: Le /api/ et /auth/ sont gérés par Nginx
+        const AUTH_API_URL = '/auth';
+        const TASKS_API_URL = '/api';
+
+        // Éléments du DOM
+        const authSection = document.getElementById('auth-section');
+        const tasksSection = document.getElementById('tasks-section');
+        const authMsg = document.getElementById('auth-msg');
+        const taskMsg = document.getElementById('task-msg');
+
+        const loginBtn = document.getElementById('login-btn');
+        const registerBtn = document.getElementById('register-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+
+        const addTaskBtn = document.getElementById('add-task-btn');
+        const tasksList = document.getElementById('tasks-list');
+        const taskTitleInput = document.getElementById('task-title');
+
+        let token = localStorage.getItem('token');
+
+        // --- Logique d'affichage ---
+        function showAuth(message = '') {
+            authSection.classList.remove('hidden');
+            tasksSection.classList.add('hidden');
+            token = null;
+            localStorage.removeItem('token');
+            authMsg.textContent = message;
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+        }
+
+        function showTasks() {
+            authSection.classList.add('hidden');
+            tasksSection.classList.remove('hidden');
+            taskMsg.textContent = '';
+            loadTasks();
+        }
+
+        // --- Logique d'Authentification ---
+        registerBtn.onclick = async () => {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            if (!username || !password) {
+                authMsg.textContent = 'Veuillez remplir tous les champs.';
+                return;
+            }
+            try {
+                const response = await fetch(`${AUTH_API_URL}/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                if (response.status === 201) {
+                    authMsg.textContent = 'Inscription réussie ! Connectez-vous.';
+                } else {
+                    const data = await response.json();
+                    authMsg.textContent = `Erreur: ${data.detail}`;
+                }
+            } catch (e) { authMsg.textContent = 'Erreur réseau.'; }
+        };
+
+        loginBtn.onclick = async () => {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            authMsg.textContent = '';
+            
+            if (!username || !password) {
+                authMsg.textContent = 'Veuillez remplir tous les champs.';
+                return;
+            }
+            
+            const formData = new URLSearchParams();
+            formData.append('username', username);
+            formData.append('password', password);
+
+            try {
+                const response = await fetch(`${AUTH_API_URL}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formData
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    token = data.access_token;
+                    localStorage.setItem('token', token);
+                    showTasks();
+                } else {
+                    authMsg.textContent = 'Échec de la connexion. Vérifiez vos identifiants.';
+                }
+            } catch (e) { authMsg.textContent = 'Erreur réseau.'; }
+        };
+
+        logoutBtn.onclick = () => showAuth('Déconnexion réussie.');
+
+        // --- Logique des Tâches ---
+
+        async function loadTasks() {
+            if (!token) return;
+            try {
+                const response = await fetch(`${TASKS_API_URL}/tasks`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (response.status === 401) return showAuth('Session expirée. Veuillez vous reconnecter.');
+                
+                const tasks = await response.json();
+                tasksList.innerHTML = ''; 
+                tasks.forEach(task => {
+                    tasksList.appendChild(createTaskElement(task));
+                });
+            } catch (e) { 
+                console.error('Erreur chargement tâches:', e);
+                taskMsg.textContent = 'Erreur lors du chargement des tâches.';
+            }
+        }
+
+        function createTaskElement(task) {
+            const li = document.createElement('li');
+            li.dataset.taskId = task.id;
+
+            // Checkbox
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = task.completed;
+            checkbox.classList.add('task-checkbox');
+            checkbox.addEventListener('change', () => handleUpdateTask(task.id, li.querySelector('.task-title').textContent, checkbox.checked));
+
+            // Titre
+            const titleSpan = document.createElement('span');
+            titleSpan.textContent = task.title;
+            titleSpan.classList.add('task-title');
+            if (task.completed) {
+                titleSpan.classList.add('completed');
+            }
+            titleSpan.title = "Cliquez pour modifier"; // Tooltip
+            titleSpan.addEventListener('click', () => editTaskTitle(li));
+
+            // Bouton Supprimer (Créé dynamiquement ici)
+            const deleteBtn = document.createElement('button');
+            deleteBtn.textContent = 'Supprimer';
+            deleteBtn.classList.add('delete-btn');
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                handleDeleteTask(task.id, li);
+            });
+
+            li.appendChild(checkbox);
+            li.appendChild(titleSpan);
+            li.appendChild(deleteBtn);
+            
+            return li;
+        }
+
+        // Fonctionnalité : Suppression
+        async function handleDeleteTask(taskId, liElement) {
+            if (!token) return showAuth('Session expirée.');
+            if (!confirm('Êtes-vous sûr de vouloir supprimer cette tâche ?')) return;
+
+            try {
+                const response = await fetch(`${TASKS_API_URL}/tasks/${taskId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.status === 204) {
+                    liElement.remove();
+                    taskMsg.textContent = 'Tâche supprimée.';
+                } else if (response.status === 401) {
+                    showAuth('Session expirée.');
+                } else {
+                    taskMsg.textContent = 'Erreur lors de la suppression.';
+                }
+            } catch (e) {
+                console.error('Erreur réseau suppression:', e);
+                taskMsg.textContent = 'Erreur réseau lors de la suppression.';
+            }
+        }
+
+        // Fonctionnalité : Mise à jour
+        async function handleUpdateTask(taskId, title, completed) {
+            if (!token) return showAuth('Session expirée.');
+
+            try {
+                const response = await fetch(`${TASKS_API_URL}/tasks/${taskId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ title, completed })
+                });
+
+                if (response.ok) {
+                    const updatedTask = await response.json();
+                    const li = tasksList.querySelector(`li[data-task-id="${taskId}"]`);
+                    if (li) {
+                        const titleSpan = li.querySelector('.task-title');
+                        titleSpan.textContent = updatedTask.title;
+                        titleSpan.classList.toggle('completed', updatedTask.completed);
+                        li.querySelector('.task-checkbox').checked = updatedTask.completed;
+                    }
+                    taskMsg.textContent = 'Tâche mise à jour.';
+                } else {
+                    taskMsg.textContent = 'Erreur lors de la mise à jour.';
+                    loadTasks();
+                }
+            } catch (e) {
+                console.error('Erreur réseau mise à jour:', e);
+                taskMsg.textContent = 'Erreur réseau lors de la mise à jour.';
+            }
+        }
+
+        function editTaskTitle(li) {
+            const titleSpan = li.querySelector('.task-title');
+            const currentTitle = titleSpan.textContent;
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentTitle;
+            input.classList.add('edit-input');
+
+            li.replaceChild(input, titleSpan);
+            input.focus();
+
+            const save = async () => {
+                const newTitle = input.value.trim();
+                const taskId = li.dataset.taskId;
+                const isCompleted = li.querySelector('.task-checkbox').checked;
+
+                if (newTitle && newTitle !== currentTitle) {
+                    titleSpan.textContent = newTitle;
+                    li.replaceChild(titleSpan, input);
+                    await handleUpdateTask(taskId, newTitle, isCompleted);
+                } else {
+                    titleSpan.textContent = currentTitle;
+                    li.replaceChild(titleSpan, input);
+                }
+            };
+
+            input.addEventListener('blur', save);
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    input.blur();
+                } else if (e.key === 'Escape') {
+                    input.value = currentTitle;
+                    input.blur();
+                }
+            });
+        }
+
+        addTaskBtn.onclick = async () => {
+            if (!token) return showAuth('Session expirée.');
+            const title = taskTitleInput.value;
+            if (!title) {
+                taskMsg.textContent = 'Veuillez entrer un titre pour la tâche.';
+                return;
+            }
+
+            try {
+                const response = await fetch(`${TASKS_API_URL}/tasks`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ title })
+                });
+                if (response.status === 201) {
+                    taskTitleInput.value = '';
+                    taskMsg.textContent = 'Tâche ajoutée !';
+                    loadTasks();
+                } else if (response.status === 401) {
+                    showAuth('Session expirée.');
+                } else {
+                    taskMsg.textContent = 'Erreur lors de l\'ajout de la tâche.';
+                }
+            } catch (e) { 
+                console.error('Erreur réseau ajout tâche:', e);
+                taskMsg.textContent = 'Erreur réseau lors de l\'ajout.';
+            }
+        };
+
+        if (token) {
+            showTasks();
+        } else {
+            showAuth();
+        }
+    </script>
 </body>
 </html>
