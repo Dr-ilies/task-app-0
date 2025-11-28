@@ -1,6 +1,5 @@
 # .github/workflows/deploy-gcr.yml
 # Pipeline CI/CD pour le projet task-app-gcr (Déploiement sur Google Cloud Run)
-
 name: CI/CD pour Google Cloud Run
 
 on:
@@ -16,9 +15,9 @@ env:
   GAR_REPOSITORY: task-app-repo
   
   # Noms des services Cloud Run
-  AUTH_SERVICE_NAME: auth-api
-  TASKS_SERVICE_NAME: tasks-api
-  FRONTEND_SERVICE_NAME: frontend-web
+  AUTH_SERVICE_NAME: auth_api
+  TASKS_SERVICE_NAME: tasks_api
+  FRONTEND_SERVICE_NAME: frontend_web
   
   # Variables d'environnement pour l'application
   DB_USER: postgres
@@ -46,8 +45,8 @@ jobs:
 
     - name: 3. Exécuter les tests de l'API Tasks
       run: |
-        pip install -r tasks-api/requirements.txt
-        pytest tasks-api/
+        pip install -r tasks_api/requirements.txt
+        pytest tasks_api/
       # Note: Idéalement, les tests de 'auth-api' seraient aussi exécutés ici
 
     - name: 4. Configurer Docker pour Artifact Registry
@@ -55,27 +54,27 @@ jobs:
 
     # --- Section de Build & Push pour chaque service ---
     
-    - name: 5.1 Build & Push (auth-api)
+    - name: 5.1 Build & Push (auth_api)
       run: |
-        docker build -t ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/auth-api:${{ github.sha }} ./auth-api
-        docker push ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/auth-api:${{ github.sha }}
+        docker build -t ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/auth_api:${{ github.sha }} ./auth_api
+        docker push ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/auth_api:${{ github.sha }}
 
-    - name: 5.2 Build & Push (tasks-api)
+    - name: 5.2 Build & Push (tasks_api)
       run: |
-        docker build -t ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/tasks-api:${{ github.sha }} ./tasks-api
-        docker push ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/tasks-api:${{ github.sha }}
+        docker build -t ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/tasks_api:${{ github.sha }} ./tasks_api
+        docker push ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/tasks_api:${{ github.sha }}
 
     - name: 5.3 Build & Push (frontend)
       run: |
-        docker build -t ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/frontend-web:${{ github.sha }} ./frontend
-        docker push ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/frontend-web:${{ github.sha }}
+        docker build -t ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/frontend_web:${{ github.sha }} ./frontend
+        docker push ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/frontend_web:${{ github.sha }}
 
     # --- Section de Déploiement sur Cloud Run pour chaque service ---
     
     - name: 6.1 Déployer auth-api sur Cloud Run
       run: |
         gcloud run deploy ${{ env.AUTH_SERVICE_NAME }} \
-          --image=${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/auth-api:${{ github.sha }} \
+          --image=${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/auth_api:${{ github.sha }} \
           --platform=managed \
           --region=${{ env.GAR_LOCATION }} \
           --allow-unauthenticated \
@@ -85,7 +84,7 @@ jobs:
       id: deploy-tasks
       run: |
         gcloud run deploy ${{ env.TASKS_SERVICE_NAME }} \
-          --image=${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/tasks-api:${{ github.sha }} \
+          --image=${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/tasks_api:${{ github.sha }} \
           --platform=managed \
           --region=${{ env.GAR_LOCATION }} \
           --allow-unauthenticated \
@@ -117,7 +116,7 @@ jobs:
         # (ou mieux, faites les appels API directement depuis le JS)
         
         gcloud run deploy ${{ env.FRONTEND_SERVICE_NAME }} \
-          --image=${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/frontend-web:${{ github.sha }} \
+          --image=${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/frontend_web:${{ github.sha }} \
           --platform=managed \
           --region=${{ env.GAR_LOCATION }} \
           --allow-unauthenticated
