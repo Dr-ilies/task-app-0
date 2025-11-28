@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from tasks_api.app import app, get_db, Base, get_current_user # Assurez-vous que le nom d'import est correct
+from app import app, get_db, Base, get_current_user # Assurez-vous que le nom d'import est correct
 
 # --- Configuration de la base de données de test ---
 # Nous utilisons une base de données SQLite en mémoire pour les tests
@@ -74,7 +74,7 @@ def test_create_task(test_client):
 def test_read_tasks(test_client, db_session):
     """Teste la lecture de toutes les tâches d'un utilisateur."""
     # Créer une tâche de test directement dans la DB
-    from tasks_api.app import Task
+    from app import Task
     db_task = Task(title="Test Task 2", owner="testuser", completed=False)
     db_session.add(db_task)
     db_session.commit()
@@ -101,7 +101,7 @@ def test_read_task_not_found(test_client):
 
 def test_read_task_not_owner(test_client, db_session):
     """Teste la lecture d'une tâche appartenant à un autre utilisateur."""
-    from tasks_api.app import Task
+    from app import Task
     db_task = Task(title="Other User Task", owner="anotheruser", completed=False)
     db_session.add(db_task)
     db_session.commit()
@@ -113,7 +113,7 @@ def test_read_task_not_owner(test_client, db_session):
 # --- TEST POUR LA PARTIE 4 ---
 def test_delete_task(test_client, db_session):
     """Teste la suppression d'une tâche."""
-    from tasks_api.app import Task
+    from app import Task
     db_task = Task(title="Task to delete", owner="testuser", completed=False)
     db_session.add(db_task)
     db_session.commit()
@@ -138,7 +138,7 @@ def test_delete_task_not_found(test_client):
 
 def test_delete_task_not_owner(test_client, db_session):
     """Teste la suppression d'une tâche appartenant à un autre utilisateur."""
-    from tasks_api.app import Task
+    from app import Task
     db_task = Task(title="Other User Task", owner="anotheruser", completed=False)
     db_session.add(db_task)
     db_session.commit()
@@ -150,7 +150,7 @@ def test_delete_task_not_owner(test_client, db_session):
 # --- TEST POUR LA PARTIE 6 ---
 def test_update_task(test_client, db_session):
     """Teste la mise à jour d'une tâche."""
-    from tasks_api.app import Task
+    from app import Task
     db_task = Task(title="Task to update", owner="testuser", completed=False)
     db_session.add(db_task)
     db_session.commit()
@@ -183,7 +183,7 @@ def test_update_task_not_found(test_client):
 
 def test_update_task_not_owner(test_client, db_session):
     """Teste la mise à jour d'une tâche appartenant à un autre utilisateur."""
-    from tasks_api.app import Task
+    from app import Task
     db_task = Task(title="Other User Task", owner="anotheruser", completed=False)
     db_session.add(db_task)
     db_session.commit()

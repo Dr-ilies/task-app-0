@@ -72,6 +72,7 @@ jobs:
     # --- Section de Déploiement sur Cloud Run pour chaque service ---
     
     - name: 6.1 Déployer auth-api sur Cloud Run
+      id: deploy_auth
       run: |
         gcloud run deploy ${{ env.AUTH_SERVICE_NAME }} \
           --image=${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/auth_api:${{ github.sha }} \
@@ -81,7 +82,7 @@ jobs:
           --set-env-vars=JWT_SECRET_KEY=${{ secrets.JWT_SECRET }}
 
     - name: 6.2 Déployer tasks-api sur Cloud Run
-      id: deploy-tasks
+      id: deploy_tasks
       run: |
         gcloud run deploy ${{ env.TASKS_SERVICE_NAME }} \
           --image=${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/tasks_api:${{ github.sha }} \
@@ -95,7 +96,7 @@ jobs:
         echo "service_url=$(gcloud run services describe ${{ env.TASKS_SERVICE_NAME }} --platform=managed --region=${{ env.GAR_LOCATION }} --format='value(status.url)')" >> $GITHUB_OUTPUT
 
     - name: 6.3 Déployer frontend-web sur Cloud Run
-      id: deploy-frontend
+      id: deploy_frontend
       run: |
         # Récupérer les URLs des services backend
         AUTH_URL=$(gcloud run services describe ${{ env.AUTH_SERVICE_NAME }} --platform=managed --region=${{ env.GAR_LOCATION }} --format='value(status.url)')
