@@ -20,22 +20,22 @@ services:
       retries: 5
 
   # Service 1: API d'Authentification
-  auth_api:
-    build: ./auth_api
-    container_name: auth_api
+  auth-api:
+    build: ./auth-api
+    container_name: auth-api
     environment:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-un_secret_tres_fort_a_changer}
     ports:
       - "8001:8000" # Hôte:Conteneur
     volumes:
-      - ./auth_api:/app # Monte le code local pour le développement
+      - ./auth-api:/app # Monte le code local pour le développement
     depends_on:
       - db # Ne démarre pas avant que la DB soit (théoriquement) prête
     
   # Service 2: API de Tâches
-  tasks_api:
-    build: ./tasks_api
-    container_name: tasks_api
+  tasks-api:
+    build: ./tasks-api
+    container_name: tasks-api
     environment:
       - DB_USER=${DB_USER:-postgres}
       - DB_PASSWORD=${DB_PASSWORD:-password}
@@ -45,7 +45,7 @@ services:
     ports:
       - "8002:8000" # Hôte:Conteneur
     volumes:
-      - ./tasks_api:/app # Monte le code local pour le développement
+      - ./tasks-api:/app # Monte le code local pour le développement
     depends_on:
       db:
         condition: service_healthy # Attend que le healthcheck de la DB passe
@@ -53,12 +53,12 @@ services:
   # Service 3: Frontend (Nginx)
   frontend:
     build: ./frontend
-    container_name: frontend_web
+    container_name: frontend-web
     ports:
       - "8080:80" # Notre app est accessible sur http://localhost:8080
     depends_on:
-      - auth_api
-      - tasks_api
+      - auth-api
+      - tasks-api
 
 # Définition du volume nommé pour la persistance
 volumes:
