@@ -45,8 +45,8 @@ jobs:
 
     - name: 3. Exécuter les tests de l'API Tasks
       run: |
-        pip install -r tasks_api/requirements.txt
-        pytest tasks_api/
+        pip install -r tasks-api/requirements.txt
+        pytest tasks-api/
       # Note: Idéalement, les tests de 'auth-api' seraient aussi exécutés ici
 
     - name: 4. Configurer Docker pour Artifact Registry
@@ -72,7 +72,7 @@ jobs:
     # --- Section de Déploiement sur Cloud Run pour chaque service ---
     
     - name: 6.1 Déployer auth-api sur Cloud Run
-      id: deploy_auth
+      id: deploy-auth
       run: |
         gcloud run deploy ${{ env.AUTH_SERVICE_NAME }} \
           --image=${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/auth-api:${{ github.sha }} \
@@ -82,7 +82,7 @@ jobs:
           --set-env-vars=JWT_SECRET_KEY=${{ secrets.JWT_SECRET }}
 
     - name: 6.2 Déployer tasks-api sur Cloud Run
-      id: deploy_tasks
+      id: deploy-tasks
       run: |
         gcloud run deploy ${{ env.TASKS_SERVICE_NAME }} \
           --image=${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/tasks-api:${{ github.sha }} \
@@ -96,7 +96,7 @@ jobs:
         echo "service_url=$(gcloud run services describe ${{ env.TASKS_SERVICE_NAME }} --platform=managed --region=${{ env.GAR_LOCATION }} --format='value(status.url)')" >> $GITHUB_OUTPUT
 
     - name: 6.3 Déployer frontend-web sur Cloud Run
-      id: deploy_frontend
+      id: deploy-frontend
       run: |
         # Récupérer les URLs des services backend
         AUTH_URL=$(gcloud run services describe ${{ env.AUTH_SERVICE_NAME }} --platform=managed --region=${{ env.GAR_LOCATION }} --format='value(status.url)')
