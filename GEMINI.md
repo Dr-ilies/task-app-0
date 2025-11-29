@@ -61,6 +61,15 @@ To stop the application:
 podman kube down podman-deployment.yml
 ```
 
+### Google Cloud Run
+
+For production deployment to Google Cloud Run, see [GCP_SETUP.md](GCP_SETUP.md) for:
+- Required IAM permissions setup
+- Service account configuration
+- GitHub Actions CI/CD deployment
+
+The GitHub Actions workflow in `.github/workflows/deploy-gcr.yml` automatically deploys on push to `main` branch.
+
 ## Development Conventions
 
 *   **Backend:** Python 3.x using the **FastAPI** framework.
