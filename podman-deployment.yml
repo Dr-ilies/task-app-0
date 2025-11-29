@@ -1,6 +1,9 @@
-# Podman Kube Play YAML for the Task App
+# Podman Kube Play YAML for the Task App (LOCAL DEVELOPMENT ONLY)
 #
-# This file defines the Kubernetes resources needed to run the application with 'podman kube play'.
+# This file defines the Kubernetes resources needed to run the application LOCALLY with 'podman kube play'.
+# For Google Kubernetes Engine (GKE) deployment, see the k8s-manifests/ directory.
+#
+# === LOCAL DEVELOPMENT USAGE ===
 #
 # Before you can use this file, you need to build the container images for the services:
 #
@@ -10,15 +13,21 @@
 #
 # After building the images, you can deploy the application with:
 #
-# 
 # podman kube play podman-deployment.yml
 #
-# The application will be available at http://localhost:8080. // not on windows use the command // wsl ip addr show eth0 | findstr "inet " // to find the wsl local IP
+# The application will be available at http://localhost:30080 
+# (On Windows WSL, use: wsl ip addr show eth0 | findstr "inet " to find the WSL IP)
 #
 # To stop and remove the pod:
 #
 # podman kube down podman-deployment.yml
 #
+# === GKE DEPLOYMENT ===
+#
+# For production deployment to Google Kubernetes Engine, use the manifests in k8s-manifests/
+# See k8s-manifests/README.md for deployment instructions.
+#
+
 
 # --- PostgreSQL Database ---
 

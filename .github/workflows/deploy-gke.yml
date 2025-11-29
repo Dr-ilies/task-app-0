@@ -1,0 +1,186 @@
+name: Deploy to GKE
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (default: latest)'
+        required: false
+        default: 'latest'
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+  REPO_NAME: task-app-repo
+  GKE_CLUSTER: ${{ secrets.GKE_CLUSTER_NAME }}
+  GKE_ZONE: ${{ secrets.GKE_ZONE }}
+
+jobs:
+  deploy-to-gke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Google Auth
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
+
+      - name: Configure kubectl
+        run: |
+          gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} \
+            --zone ${{ env.GKE_ZONE }} \
+            --project ${{ env.PROJECT_ID }}
+
+      - name: Verify cluster connection
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      # --- Create/Update Namespace ---
+      - name: Apply Namespace
+        run: |
+          kubectl apply -f k8s-manifests/namespace.yml
+
+      # --- Update Image References ---
+      - name: Update Image References
+        run: |
+          IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+          
+          # Update auth-api image
+          sed -i "s|PROJECT_ID|${{ env.PROJECT_ID }}|g" k8s-manifests/auth-api.yml
+          sed -i "s|:latest|:${IMAGE_TAG}|g" k8s-manifests/auth-api.yml
+          
+          # Update tasks-api image
+          sed -i "s|PROJECT_ID|${{ env.PROJECT_ID }}|g" k8s-manifests/tasks-api.yml
+          sed -i "s|:latest|:${IMAGE_TAG}|g" k8s-manifests/tasks-api.yml
+          
+          # Update frontend image
+          sed -i "s|PROJECT_ID|${{ env.PROJECT_ID }}|g" k8s-manifests/frontend.yml
+          sed -i "s|:latest|:${IMAGE_TAG}|g" k8s-manifests/frontend.yml
+
+      # --- Create/Update Secrets ---
+      - name: Update Database Secrets
+        run: |
+          kubectl create secret generic db-credentials \
+            --from-literal=POSTGRES_USER=postgres \
+            --from-literal=POSTGRES_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+            --from-literal=POSTGRES_DB=tasksdb \
+            --namespace=task-app \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Update Auth API Secrets
+        run: |
+          kubectl create secret generic auth-api-secrets \
+            --from-literal=JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}" \
+            --from-literal=DB_USER=postgres \
+            --from-literal=DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+            --from-literal=DB_HOST=db \
+            --from-literal=DB_NAME=tasksdb \
+            --namespace=task-app \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Update Tasks API Secrets
+        run: |
+          kubectl create secret generic tasks-api-secrets \
+            --from-literal=DB_USER=postgres \
+            --from-literal=DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+            --from-literal=DB_HOST=db \
+            --from-literal=DB_NAME=tasksdb \
+            --from-literal=JWT_SECRET_KEY="${{ secrets.JWT_SECRET_KEY }}" \
+            --namespace=task-app \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # --- Deploy Services ---
+      - name: Deploy Database
+        run: |
+          kubectl apply -f k8s-manifests/database.yml
+          echo "Waiting for database to be ready..."
+          kubectl wait --for=condition=available --timeout=300s \
+            deployment/db --namespace=task-app || true
+
+      - name: Deploy Auth API
+        run: |
+          kubectl apply -f k8s-manifests/auth-api.yml
+          echo "Waiting for auth-api to be ready..."
+          kubectl wait --for=condition=available --timeout=300s \
+            deployment/auth-api --namespace=task-app || true
+
+      - name: Deploy Tasks API
+        run: |
+          kubectl apply -f k8s-manifests/tasks-api.yml
+          echo "Waiting for tasks-api to be ready..."
+          kubectl wait --for=condition=available --timeout=300s \
+            deployment/tasks-api --namespace=task-app || true
+
+      - name: Deploy Frontend
+        run: |
+          kubectl apply -f k8s-manifests/frontend.yml
+          echo "Waiting for frontend to be ready..."
+          kubectl wait --for=condition=available --timeout=300s \
+            deployment/frontend --namespace=task-app || true
+
+      - name: Deploy Ingress
+        run: |
+          kubectl apply -f k8s-manifests/ingress.yml
+
+      # --- Verify Deployment ---
+      - name: Get Deployment Status
+        run: |
+          echo "=== Pods ==="
+          kubectl get pods --namespace=task-app
+          
+          echo ""
+          echo "=== Services ==="
+          kubectl get services --namespace=task-app
+          
+          echo ""
+          echo "=== Ingress ==="
+          kubectl get ingress --namespace=task-app
+          
+          echo ""
+          echo "=== Deployment Status ==="
+          kubectl get deployments --namespace=task-app
+
+      - name: Get Application URL
+        run: |
+          echo "Waiting for Ingress IP to be assigned..."
+          for i in {1..30}; do
+            INGRESS_IP=$(kubectl get ingress task-app-ingress --namespace=task-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+            if [ -n "$INGRESS_IP" ]; then
+              echo "✓ Application is available at: http://${INGRESS_IP}"
+              echo "::notice title=Application URL::http://${INGRESS_IP}"
+              exit 0
+            fi
+            echo "Attempt $i/30: Waiting for IP assignment..."
+            sleep 10
+          done
+          echo "::warning::Ingress IP not assigned yet. Check status with: kubectl get ingress --namespace=task-app"
+
+      - name: Show Logs on Failure
+        if: failure()
+        run: |
+          echo "=== Auth API Logs ==="
+          kubectl logs --tail=50 -l app=auth-api --namespace=task-app || true
+          
+          echo ""
+          echo "=== Tasks API Logs ==="
+          kubectl logs --tail=50 -l app=tasks-api --namespace=task-app || true
+          
+          echo ""
+          echo "=== Database Logs ==="
+          kubectl logs --tail=50 -l app=db --namespace=task-app || true
+          
+          echo ""
+          echo "=== Frontend Logs ==="
+          kubectl logs --tail=50 -l app=frontend --namespace=task-app || true

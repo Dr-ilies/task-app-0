@@ -1,9 +1,12 @@
 name: Deploy to Cloud Run
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (default: latest)'
+        required: false
+        default: 'latest'
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -11,29 +14,7 @@ env:
   REPO_NAME: task-app-repo
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: Test Auth API
-        run: |
-          pip install -r auth-api/requirements.txt
-          pytest auth-api/
-
-      - name: Test Tasks API
-        run: |
-          pip install -r tasks-api/requirements.txt
-          pytest tasks-api/
-
-  build-and-deploy:
-    needs: test
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -49,14 +30,11 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Configure Docker
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
-
       # Validate that required APIs are enabled
       - name: Validate GCP Setup
         run: |
           echo "Checking if required APIs are enabled..."
-          gcloud services list --enabled --project=${{ env.PROJECT_ID }} --filter="name:run.googleapis.com OR name:artifactregistry.googleapis.com" --format="value(name)" > enabled_apis.txt
+          gcloud services list --enabled --project=${{ env.PROJECT_ID }} --filter="name:run.googleapis.com" --format="value(name)" > enabled_apis.txt
           
           if ! grep -q "run.googleapis.com" enabled_apis.txt; then
             echo "::error::Cloud Run API is not enabled. Please run: gcloud services enable run.googleapis.com"
@@ -64,29 +42,7 @@ jobs:
             exit 1
           fi
           
-          if ! grep -q "artifactregistry.googleapis.com" enabled_apis.txt; then
-            echo "::error::Artifact Registry API is not enabled. Please run: gcloud services enable artifactregistry.googleapis.com"
-            echo "::error::See GCP_SETUP.md for complete setup instructions"
-            exit 1
-          fi
-          
           echo "✓ All required APIs are enabled"
-
-      # --- Build and Push Images ---
-      - name: Build and Push Auth API
-        run: |
-          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:latest -f auth-api/Dockerfile ./auth-api
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:latest
-
-      - name: Build and Push Tasks API
-        run: |
-          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/tasks-api:latest -f tasks-api/Dockerfile ./tasks-api
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/tasks-api:latest
-
-      - name: Build and Push Frontend
-        run: |
-          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/frontend:latest -f frontend/Dockerfile ./frontend
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/frontend:latest
 
       # --- Deploy Backends ---
       - name: Deploy Auth API
@@ -94,7 +50,7 @@ jobs:
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: auth-api
-          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:latest
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:${{ github.event.inputs.image_tag || 'latest' }}
           region: ${{ env.REGION }}
           flags: '--allow-unauthenticated --add-cloudsql-instances=${{ secrets.INSTANCE_CONNECTION_NAME }} --project ${{ env.PROJECT_ID }}'
           env_vars: |
@@ -109,7 +65,7 @@ jobs:
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: tasks-api
-          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/tasks-api:latest
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/tasks-api:${{ github.event.inputs.image_tag || 'latest' }}
           region: ${{ env.REGION }}
           flags: '--allow-unauthenticated --add-cloudsql-instances=${{ secrets.INSTANCE_CONNECTION_NAME }} --project ${{ env.PROJECT_ID }}'
           env_vars: |
@@ -124,7 +80,7 @@ jobs:
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: frontend
-          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/frontend:latest
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/frontend:${{ github.event.inputs.image_tag || 'latest' }}
           region: ${{ env.REGION }}
           flags: '--allow-unauthenticated --project ${{ env.PROJECT_ID }}'
           env_vars: |

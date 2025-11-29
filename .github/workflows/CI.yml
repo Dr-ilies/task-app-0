@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+  REPO_NAME: task-app-repo
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Test Auth API
+        run: |
+          pip install -r auth-api/requirements.txt
+          pytest auth-api/
+
+      - name: Test Tasks API
+        run: |
+          pip install -r tasks-api/requirements.txt
+          pytest tasks-api/
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Google Auth
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      # Validate that required APIs are enabled
+      - name: Validate GCP Setup
+        run: |
+          echo "Checking if required APIs are enabled..."
+          gcloud services list --enabled --project=${{ env.PROJECT_ID }} --filter="name:artifactregistry.googleapis.com" --format="value(name)" > enabled_apis.txt
+          
+          if ! grep -q "artifactregistry.googleapis.com" enabled_apis.txt; then
+            echo "::error::Artifact Registry API is not enabled. Please run: gcloud services enable artifactregistry.googleapis.com"
+            exit 1
+          fi
+          
+          echo "✓ All required APIs are enabled"
+
+      # --- Build and Push Images ---
+      - name: Build and Push Auth API
+        run: |
+          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:latest -f auth-api/Dockerfile ./auth-api
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:latest
+
+      - name: Build and Push Tasks API
+        run: |
+          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/tasks-api:latest -f tasks-api/Dockerfile ./tasks-api
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/tasks-api:latest
+
+      - name: Build and Push Frontend
+        run: |
+          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/frontend:latest -f frontend/Dockerfile ./frontend
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/frontend:latest

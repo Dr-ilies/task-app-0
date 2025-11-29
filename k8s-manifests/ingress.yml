@@ -1,0 +1,46 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: task-app-ingress
+  namespace: task-app
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: "task-app-ip"  # Optional: Use a reserved static IP
+    networking.gke.io/managed-certificates: "task-app-cert"  # Optional: For automatic SSL
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /auth/*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: auth-api
+                port:
+                  number: 8000
+          - path: /api/*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: tasks-api
+                port:
+                  number: 8000
+          - path: /*
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+---
+# Optional: Managed Certificate for HTTPS
+# Uncomment if you have a domain name
+# apiVersion: networking.gke.io/v1
+# kind: ManagedCertificate
+# metadata:
+#   name: task-app-cert
+#   namespace: task-app
+# spec:
+#   domains:
+#     - yourdomain.com
+#     - www.yourdomain.com
