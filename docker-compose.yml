@@ -25,6 +25,10 @@ services:
     container_name: auth-api
     environment:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-un_secret_tres_fort_a_changer}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-password}
+      - DB_HOST=db
+      - DB_NAME=${DB_NAME:-tasksdb}
     ports:
       - "8001:8000" # Hôte:Conteneur
     volumes:

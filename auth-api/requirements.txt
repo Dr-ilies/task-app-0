@@ -7,3 +7,6 @@ pyjwt
 python-jose
 sqlalchemy
 python-multipart
+psycopg2-binary
+pytest
+httpx

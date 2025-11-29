@@ -10,14 +10,21 @@ from jose import JWTError, jwt
 from datetime import datetime, timedelta
 
 # --- Configuration ---
-#DATABASE_URL = "sqlite:///:memory:"
-DATABASE_URL = "sqlite:///./users.db"
+# Variables d'environnement pour la connexion DB
+DB_USER = os.environ.get("DB_USER", "postgres")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "password")
+DB_HOST = os.environ.get("DB_HOST", "db")
+DB_PORT = os.environ.get("DB_PORT", "5432")
+DB_NAME = os.environ.get("DB_NAME", "tasksdb") # On utilise la même DB que tasks-api
+
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "un_secret_tres_fort_a_changer")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 Base = declarative_base()
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 app = FastAPI()

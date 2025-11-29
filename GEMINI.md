@@ -6,10 +6,21 @@ This is a multi-service task management application. It consists of a frontend, 
 
 The application is composed of four main services:
 
-*   **Frontend:** A static web application built with HTML, CSS, and vanilla JavaScript. It is served by an Nginx web server.
-*   **Authentication API:** A FastAPI application that handles user registration and login. It uses a SQLite database to store user credentials and JWT for authentication.
-*   **Tasks API:** A FastAPI application that provides CRUD functionality for tasks. It connects to a PostgreSQL database and uses JWT for authentication and authorization.
+*   **Frontend:** A static web application built with HTML, CSS, and vanilla JavaScript. It is served by an Nginx web server acting as a reverse proxy.
+    *   **Port:** 8080 (Mapped to container port 80)
+    *   **Proxy Rules:**
+        *   `/auth/` -> `auth-api:8000`
+        *   `/api/` -> `tasks-api:8000`
+*   **Authentication API:** A FastAPI application that handles user registration and login.
+    *   **Port:** 8001 (Mapped to container port 8000)
+    *   **Database:** PostgreSQL (Shared `tasksdb`)
+    *   **Auth:** JWT (HS256)
+*   **Tasks API:** A FastAPI application that provides CRUD functionality for tasks.
+    *   **Port:** 8002 (Mapped to container port 8000)
+    *   **Database:** PostgreSQL (`tasksdb`)
+    *   **Auth:** JWT validation (Shared Secret)
 *   **Database:** A PostgreSQL database used by the Tasks API to store task data.
+    *   **Port:** 5432
 
 ## Building and Running
 
@@ -41,13 +52,24 @@ podman kube play podman-deployment.yml
 
 The application will be available at `http://localhost:8080`.
 
+> [!NOTE]
+> On Windows (WSL), `localhost` might not work directly for Podman. Use the WSL IP address:
+> `wsl ip addr show eth0 | findstr "inet "`
+
+To stop the application:
+```bash
+podman kube down podman-deployment.yml
+```
+
 ## Development Conventions
 
-*   The backend services are written in Python using the FastAPI framework.
-*   The frontend is a simple HTML, CSS, and JavaScript application.
-*   The application is containerized using Docker.
-*   The `docker-compose.yml` file defines the services and their dependencies for local development.
-*   The `podman-deployment.yml` file defines the Kubernetes-like resources for deploying the application with Podman.
-*   The backend services use JWT for authentication.
-*   The Tasks API uses a PostgreSQL database, while the Authentication API uses a SQLite database.
-*   The frontend uses Nginx as a reverse proxy to communicate with the backend services.
+*   **Backend:** Python 3.x using the **FastAPI** framework.
+    *   **Auth API:** Uses `sqlalchemy` for SQLite.
+    *   **Tasks API:** Uses `sqlalchemy` and `psycopg2-binary` for PostgreSQL.
+*   **Frontend:** Vanilla HTML, CSS, and JavaScript.
+    *   Uses `fetch` API to communicate with backend services via Nginx proxy.
+*   **Authentication:** JSON Web Tokens (JWT) signed with `HS256`.
+    *   Shared secret key defined in environment variables (`JWT_SECRET_KEY`).
+*   **Containerization:**
+    *   `docker-compose.yml` for local development.
+    *   `podman-deployment.yml` for Kubernetes-like deployment with Podman.

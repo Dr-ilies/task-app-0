@@ -103,6 +103,14 @@ spec:
           env:
             - name: JWT_SECRET_KEY
               value: "un_secret_tres_fort_a_changer"
+            - name: DB_USER
+              value: "postgres"
+            - name: DB_PASSWORD
+              value: "password"
+            - name: DB_HOST
+              value: "db"
+            - name: DB_NAME
+              value: "tasksdb"
           ports:
             - containerPort: 8000
 ---
