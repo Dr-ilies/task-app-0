@@ -1,11 +1,25 @@
 import time
 import os
 from fastapi import FastAPI, Depends, HTTPException, status
-#from fastapi.security import OAuth2Bearer
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Boolean
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+from jose import jwt, JWTError
+
+# --- Configuration ---
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "un_secret_tres_fort_a_changer")
+ALGORITHM = "HS256"
+
+# --- Database Configuration ---
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
+DB_HOST = os.getenv("DB_HOST", "db")
+DB_NAME = os.getenv("DB_NAME", "tasksdb")
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}"
+
+Base = declarative_base()
 engine = None
 SessionLocal = None
 
@@ -27,10 +41,8 @@ if engine is None:
     print("Échec de la connexion à la base de données après plusieurs tentatives.")
     exit(1)
 
-
 app = FastAPI()
-#oauth2_scheme = OAuth2Bearer(tokenUrl="token") # L'URL n'est pas utilisée ici
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token") # L'URL n'est pas utilisée ici
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # --- Modèles de Données (Task) ---
 class Task(Base):
@@ -54,9 +66,6 @@ class TaskOut(BaseModel):
     owner: str
 
     model_config = ConfigDict(from_attributes=True) # <-- Remplacement pour Pydantic v2
-
-    #class Config:   #      <-- ANCIENNE METHODE
-    #    orm_mode = True # Permet de mapper le modèle SQLAlchemy
 
 # --- Dépendance DB ---
 def get_db():
@@ -120,7 +129,6 @@ def read_task(
         raise HTTPException(status_code=403, detail="Not authorized to access this task")
     return db_task
 
-# --- NOUVELLE FONCTIONNALITÉ (PARTIE 4) ---
 @app.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_task(
     task_id: int,
@@ -143,7 +151,6 @@ def delete_task(
     db.commit()
     return
 
-# --- NOUVELLE FONCTIONNALITÉ (PARTIE 6) ---
 @app.put("/tasks/{task_id}", response_model=TaskOut)
 def update_task(
     task_id: int,
@@ -183,4 +190,4 @@ if __name__ == "__main__":
         print("L'application ne peut pas démarrer, échec de la connexion à la DB.")
     else:
         print("Démarrage du serveur Uvicorn...")
-        uvicorn.run(app, host="0.0.0.0", port=8002)
+        uvicorn.run(app, host="0.0.0.0", port=8000)

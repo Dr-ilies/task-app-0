@@ -1,9 +1,27 @@
 import os
+from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+from passlib.context import CryptContext
+from jose import jwt
+
+# --- Configuration ---
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "un_secret_tres_fort_a_changer")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# --- Database Configuration ---
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
+DB_HOST = os.getenv("DB_HOST", "db")
+DB_NAME = os.getenv("DB_NAME", "tasksdb")
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}"
+
+Base = declarative_base()
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -22,8 +40,6 @@ class UserCreate(BaseModel):
     password: str
 
     model_config = ConfigDict(from_attributes=True) # <-- pour Pydantic v2
-
-#Base.metadata.create_all(bind=engine)
 
 # --- Dépendance DB ---
 def get_db():
@@ -85,5 +101,4 @@ def on_startup():
 
 if __name__ == "__main__":
     import uvicorn
-    #Base.metadata.create_all(bind=engine) # Assure que la table est créée
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
