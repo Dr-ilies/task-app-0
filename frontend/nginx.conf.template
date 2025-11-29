@@ -1,0 +1,23 @@
+server {
+    listen 80;
+    server_name localhost;
+
+    # Servir les fichiers statiques (notre UI)
+    location / {
+        root /usr/share/nginx/html;
+        index index.html index.htm;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Rediriger vers l'API d'authentification
+    location /auth/ {
+        # Utilisation de la variable d'environnement substituée
+        proxy_pass ${AUTH_API_URL};
+    }
+
+    # Rediriger vers l'API de tâches
+    location /api/ {
+        # Utilisation de la variable d'environnement substituée
+        proxy_pass ${TASKS_API_URL};
+    }
+}

@@ -6,25 +6,6 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-from jose import JWTError, jwt
-
-
-# --- Configuration ---
-# Variables d'environnement pour la connexion DB
-DB_USER = os.environ.get("DB_USER", "postgres")
-DB_PASSWORD = os.environ.get("DB_PASSWORD", "password")
-DB_HOST = os.environ.get("DB_HOST", "db") # 'db' est le nom du service dans docker-compose
-DB_PORT = os.environ.get("DB_PORT", "5432")
-DB_NAME = os.environ.get("DB_NAME", "tasksdb")
-
-DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-
-# Clé secrète JWT (doit être la MÊME que celle de auth-api)
-SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "un_secret_tres_fort_a_changer")
-ALGORITHM = "HS256"
-
-Base = declarative_base()
 engine = None
 SessionLocal = None
 

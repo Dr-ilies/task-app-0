@@ -14,14 +14,16 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
   # Service 1: API d'Authentification
   auth-api:
-    build: ./auth-api
+    build:
+      context: ./auth-api
+      dockerfile: Dockerfile.dev
     container_name: auth-api
     environment:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-un_secret_tres_fort_a_changer}
@@ -35,10 +37,12 @@ services:
       - ./auth-api:/app # Monte le code local pour le développement
     depends_on:
       - db # Ne démarre pas avant que la DB soit (théoriquement) prête
-    
+
   # Service 2: API de Tâches
   tasks-api:
-    build: ./tasks-api
+    build:
+      context: ./tasks-api
+      dockerfile: Dockerfile.dev
     container_name: tasks-api
     environment:
       - DB_USER=${DB_USER:-postgres}
@@ -56,7 +60,9 @@ services:
 
   # Service 3: Frontend (Nginx)
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
     container_name: frontend-web
     ports:
       - "8080:80" # Notre app est accessible sur http://localhost:8080

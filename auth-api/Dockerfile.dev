@@ -1,0 +1,29 @@
+# Étape 1: Base Python
+FROM python:3.10-slim
+
+# Définir le répertoire de travail
+WORKDIR /app
+
+# Créer un utilisateur non-root pour la sécurité
+RUN useradd -m -s /bin/bash appuser
+
+# Copier les dépendances
+COPY requirements.txt .
+
+# Installer les dépendances
+RUN pip install -r requirements.txt
+
+# Copier tout le reste (pour le premier build, mais sera écrasé par le volume)
+COPY . .
+
+# Donner la propriété à appuser
+RUN chown -R appuser:appuser /app
+
+# Passer à l'utilisateur non-root
+USER appuser
+
+# Exposer le port
+EXPOSE 8000
+
+# Lancer l'application avec hot-reload
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
