@@ -39,7 +39,7 @@ for i in range(max_retries):
     try:
         engine = create_engine(DATABASE_URL)
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-        #Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=engine)  # Create tables here when connection is fresh
         print("Database connection successful.")
         break
     except Exception as e:
