@@ -8,6 +8,7 @@ metadata:
     kubernetes.io/ingress.global-static-ip-name: "task-app-ip"  # Optional: Use a reserved static IP
     networking.gke.io/managed-certificates: "task-app-cert"  # Optional: For automatic SSL
 spec:
+  ingressClassName: gce
   rules:
     - http:
         paths:
