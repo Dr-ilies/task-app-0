@@ -17,6 +17,13 @@ spec:
         - name: frontend
           image: us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/frontend:latest
           imagePullPolicy: Always
+          env:
+            - name: PORT
+              value: "80"
+            - name: AUTH_API_URL
+              value: "http://auth-api:8000/"
+            - name: TASKS_API_URL
+              value: "http://tasks-api:8000/"
           ports:
             - containerPort: 80
               name: http
