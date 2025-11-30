@@ -29,4 +29,4 @@ EXPOSE 8000
 
 # Lancer l'application
 # Ajout de --user pour que pip fonctionne
-CMD ["/home/appuser/.local/bin/uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/bin/sh", "-c", "/home/appuser/.local/bin/uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]

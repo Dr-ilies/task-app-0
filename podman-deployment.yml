@@ -119,6 +119,8 @@ spec:
           value: "http://localhost:8000/"  # Added trailing slash for proper proxy_pass
         - name: TASKS_API_URL
           value: "http://localhost:8001/"  # Added trailing slash for proper proxy_pass
+        - name: PORT
+          value: "80"
       ports:
         - containerPort: 80
           hostPort: 8080  # Expose on host port 8080
