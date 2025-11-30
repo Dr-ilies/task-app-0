@@ -30,7 +30,7 @@ for i in range(max_retries):
     try:
         engine = create_engine(DATABASE_URL)
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-        Base.metadata.create_all(bind=engine)
+        #Base.metadata.create_all(bind=engine)
         print("Connexion à la base de données réussie.")
         break
     except Exception as e:
@@ -187,7 +187,7 @@ def health_check():
 @app.on_event("startup")
 def on_startup():
     # Créer les tables au démarrage de l'application
-    # Base.metadata.create_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
     pass
 
 if __name__ == "__main__":
