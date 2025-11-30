@@ -59,6 +59,7 @@ jobs:
             DB_NAME=tasksdb
             JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
             INSTANCE_CONNECTION_NAME=${{ secrets.INSTANCE_CONNECTION_NAME }}
+            DB_HOST=/cloudsql/${{ secrets.INSTANCE_CONNECTION_NAME }}
 
       - name: Deploy Tasks API
         id: deploy-tasks
@@ -74,6 +75,7 @@ jobs:
             DB_NAME=tasksdb
             JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
             INSTANCE_CONNECTION_NAME=${{ secrets.INSTANCE_CONNECTION_NAME }}
+            DB_HOST=/cloudsql/${{ secrets.INSTANCE_CONNECTION_NAME }}
 
       # --- Deploy Frontend ---
       - name: Deploy Frontend
