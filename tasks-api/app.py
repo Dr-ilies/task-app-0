@@ -178,16 +178,23 @@ def update_task(
     db.refresh(db_task)
     return db_task
 
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for Kubernetes liveness and readiness probes."""
+    return {"status": "healthy"}
+
 @app.on_event("startup")
 def on_startup():
     # Créer les tables au démarrage de l'application
-    Base.metadata.create_all(bind=engine)
+    # Base.metadata.create_all(bind=engine)
+    pass
 
 if __name__ == "__main__":
     import uvicorn
     # Cette vérification est redondante avec le check au démarrage, mais bonne pratique
-    if SessionLocal is None:
-        print("L'application ne peut pas démarrer, échec de la connexion à la DB.")
-    else:
-        print("Démarrage du serveur Uvicorn...")
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+    #if SessionLocal is None:
+    #    print("L'application ne peut pas démarrer, échec de la connexion à la DB.")
+    #else:
+    print("Démarrage du serveur Uvicorn...")
+    uvicorn.run(app, host="0.0.0.0", port=8000)

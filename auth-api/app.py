@@ -1,3 +1,4 @@
+import time
 import os
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, status
@@ -22,8 +23,26 @@ DB_NAME = os.getenv("DB_NAME", "tasksdb")
 DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}"
 
 Base = declarative_base()
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+engine = None
+SessionLocal = None
+
+# Database connection retry logic (prevents crashes when DB is not ready)
+max_retries = 10
+retry_delay = 5
+for i in range(max_retries):
+    try:
+        engine = create_engine(DATABASE_URL)
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        Base.metadata.create_all(bind=engine)
+        print("Database connection successful.")
+        break
+    except Exception as e:
+        print(f"Waiting for database... ({i+1}/{max_retries}). Error: {e}")
+        time.sleep(retry_delay)
+
+if engine is None:
+    print("Failed to connect to database after multiple attempts.")
+    exit(1)
 
 app = FastAPI()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -94,11 +113,18 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
+@app.get("/health")
+def health_check():
+    """Health check endpoint for Kubernetes liveness and readiness probes."""
+    return {"status": "healthy"}
+
 @app.on_event("startup")
 def on_startup():
     # Créer les tables au démarrage de l'application
-    Base.metadata.create_all(bind=engine)
+    # Base.metadata.create_all(bind=engine)
+    pass
 
 if __name__ == "__main__":
     import uvicorn
+    print("Démarrage du serveur Uvicorn...")
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -56,6 +56,8 @@ spec:
                 secretKeyRef:
                   name: db-credentials
                   key: POSTGRES_DB
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           ports:
             - containerPort: 5432
               name: postgres
