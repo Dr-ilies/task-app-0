@@ -9,4 +9,5 @@ sqlalchemy
 python-multipart
 psycopg2-binary
 pytest
+typing_extensions
 httpx

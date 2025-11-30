@@ -56,7 +56,7 @@ jobs:
           env_vars: |
             DB_USER=postgres
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            DB_NAME=postgres
+            DB_NAME=tasksdb
             JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
             INSTANCE_CONNECTION_NAME=${{ secrets.INSTANCE_CONNECTION_NAME }}
 
@@ -71,7 +71,7 @@ jobs:
           env_vars: |
             DB_USER=postgres
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            DB_NAME=postgres
+            DB_NAME=tasksdb
             JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
             INSTANCE_CONNECTION_NAME=${{ secrets.INSTANCE_CONNECTION_NAME }}
 

@@ -89,26 +89,7 @@ gcloud iam service-accounts keys create gcp-key.json \
 > [!CAUTION]
 > **Keep this key secure!** It provides access to your GCP resources. Never commit it to version control.
 
-## 5. Add GitHub Secrets
-
-Add the following secrets to your GitHub repository:
-
-1. Go to your GitHub repository
-2. Navigate to **Settings** → **Secrets and variables** → **Actions**
-3. Click **New repository secret** and add:
-
-| Secret Name | Value | Description |
-|------------|-------|-------------|
-| `GCP_PROJECT_ID` | Your GCP project ID | Project identifier |
-| `GCP_SA_KEY` | Contents of `gcp-key.json` | Service account credentials |
-| `DB_PASSWORD` | Your database password | PostgreSQL password |
-| `JWT_SECRET_KEY` | Your JWT secret | Authentication secret key |
-| `INSTANCE_CONNECTION_NAME` | `PROJECT:REGION:INSTANCE` | Cloud SQL connection string |
-
-> [!TIP]
-> For `INSTANCE_CONNECTION_NAME`, use format: `your-project:us-central1:your-db-instance`
-
-## 6. Create Artifact Registry Repository
+## 5. Create Artifact Registry Repository
 
 Create a Docker repository in Artifact Registry:
 
@@ -120,7 +101,7 @@ gcloud artifacts repositories create task-app-repo \
     --project=$PROJECT_ID
 ```
 
-## 7. Set Up Cloud SQL (If Not Already Done)
+## 6. Set Up Cloud SQL (If Not Already Done)
 
 If you haven't created a Cloud SQL instance:
 
@@ -141,6 +122,80 @@ gcloud sql databases create tasksdb \
 gcloud sql users set-password postgres \
     --instance=tasksdb-instance \
     --password=YOUR_SECURE_PASSWORD \
+    --project=$PROJECT_ID
+```
+
+## 7. Add GitHub Secrets
+
+Add the following secrets to your GitHub repository:
+
+1. Go to your GitHub repository
+2. Navigate to **Settings** → **Secrets and variables** → **Actions**
+3. Click **New repository secret** and add:
+
+| Secret Name | Value | Description |
+|------------|-------|-------------|
+| `GCP_PROJECT_ID` | Your GCP project ID | Project identifier |
+| `GCP_SA_KEY` | Contents of `gcp-key.json` | Service account credentials |
+| `DB_PASSWORD` | Your database password | PostgreSQL password |
+| `JWT_SECRET_KEY` | Your JWT secret | Authentication secret key |
+| `INSTANCE_CONNECTION_NAME` | `PROJECT:REGION:INSTANCE` | Cloud SQL connection string |
+
+> [!TIP]
+> For `INSTANCE_CONNECTION_NAME`, use format: `your-project:us-central1:your-db-instance`
+
+
+
+## 8. GKE Setup (Optional)
+
+If you plan to deploy to Google Kubernetes Engine (GKE), follow these additional steps:
+
+### 8.1 Enable GKE API
+
+```bash
+gcloud services enable container.googleapis.com
+```
+
+### 8.2 Create GKE Cluster
+
+Create a standard or autopilot cluster:
+
+```bash
+# Example: Create a standard zonal cluster
+gcloud container clusters create task-app-cluster \
+    --zone us-central1-c \
+    --num-nodes 3 \
+    --machine-type e2-medium \
+    --project=$PROJECT_ID
+```
+
+### 8.3 Grant GKE Permissions
+
+Grant the service account permission to deploy to GKE:
+
+```bash
+# Kubernetes Engine Developer - Deploy to GKE
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:github-actions-deployer@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role="roles/container.developer"
+```
+
+### 8.4 Add GKE Secrets
+
+Add these additional secrets to your GitHub repository:
+
+| Secret Name | Value | Description |
+|------------|-------|-------------|
+| `GKE_CLUSTER_NAME` | `task-app-cluster` | Name of your GKE cluster |
+| `GKE_ZONE` | `us-central1-c` | Zone of your GKE cluster |
+
+### 8.5 Configure kubectl (Local)
+
+To interact with your cluster locally:
+
+```bash
+gcloud container clusters get-credentials task-app-cluster \
+    --zone us-central1-c \
     --project=$PROJECT_ID
 ```
 

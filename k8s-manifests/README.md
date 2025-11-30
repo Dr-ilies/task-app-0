@@ -24,11 +24,11 @@ The application is deployed across multiple services:
 
 2. **kubectl**: Configured to connect to your cluster
    ```bash
-   gcloud container clusters get-credentials task-app-cluster --zone us-central1-a
+   gcloud container clusters get-credentials task-app-cluster --zone us-central1-c
    ```
 
 3. **Container Images**: Images must be built and pushed to Artifact Registry
-   - This is handled by the `deploy-gcr.yml` workflow
+   - This is handled by the `CI.yml` workflow
 
 4. **GitHub Secrets**: The following secrets must be configured:
    - `GCP_SA_KEY`: Service account key JSON

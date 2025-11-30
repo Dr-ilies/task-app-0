@@ -1,7 +1,10 @@
 # Podman Kube Play YAML for the Task App (LOCAL DEVELOPMENT ONLY)
 #
-# This file defines the Kubernetes resources needed to run the application LOCALLY with 'podman kube play'.
+# This file defines a SINGLE POD configuration for local testing with 'podman kube play'.
+# All containers run in the same pod and share the network namespace (can communicate via localhost).
+#
 # For Google Kubernetes Engine (GKE) deployment, see the k8s-manifests/ directory.
+# For Docker/Podman Compose deployment, see docker-compose.yml.
 #
 # === LOCAL DEVELOPMENT USAGE ===
 #
@@ -15,7 +18,7 @@
 #
 # podman kube play podman-deployment.yml
 #
-# The application will be available at http://localhost:30080 
+# The application will be available at http://localhost:8080 
 # (On Windows WSL, use: wsl ip addr show eth0 | findstr "inet " to find the WSL IP)
 #
 # To stop and remove the pod:
@@ -28,9 +31,8 @@
 # See k8s-manifests/README.md for deployment instructions.
 #
 
-
-# --- PostgreSQL Database ---
-
+---
+# Persistent Volume Claim for PostgreSQL data
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -41,181 +43,87 @@ spec:
   resources:
     requests:
       storage: 1Gi
+
 ---
-apiVersion: apps/v1
-kind: Deployment
+# Single Pod containing all application containers
+apiVersion: v1
+kind: Pod
 metadata:
-  name: db-deployment
+  name: task-app-pod
+  labels:
+    app: task-app
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: db
-  template:
-    metadata:
-      labels:
-        app: db
-    spec:
-      containers:
-        - name: postgres
-          image: postgres:15-alpine
-          env:
-            - name: POSTGRES_USER
-              value: "postgres"
-            - name: POSTGRES_PASSWORD
-              value: "password"
-            - name: POSTGRES_DB
-              value: "tasksdb"
-          ports:
-            - containerPort: 5432
-          volumeMounts:
-            - name: postgres-storage
-              mountPath: /var/lib/postgresql/data
-      volumes:
+  containers:
+    # PostgreSQL Database
+    - name: postgres
+      image: postgres:15-alpine
+      env:
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          value: "password"
+        - name: POSTGRES_DB
+          value: "tasksdb"
+      ports:
+        - containerPort: 5432
+          hostPort: 5432
+      volumeMounts:
         - name: postgres-storage
-          persistentVolumeClaim:
-            claimName: postgres-pvc
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: db
-spec:
-  selector:
-    app: db
-  ports:
-    - protocol: TCP
-      port: 5432
-      targetPort: 5432
+          mountPath: /var/lib/postgresql/data
 
-# --- Authentication API ---
+    # Authentication API
+    - name: auth-api
+      image: auth-api:latest
+      imagePullPolicy: Never
+      env:
+        - name: JWT_SECRET_KEY
+          value: "un_secret_tres_fort_a_changer"
+        - name: DB_USER
+          value: "postgres"
+        - name: DB_PASSWORD
+          value: "password"
+        - name: DB_HOST
+          value: "localhost"  # Changed from 'db' to 'localhost' for single pod
+        - name: DB_NAME
+          value: "tasksdb"
+      ports:
+        - containerPort: 8000
+          name: auth-api
 
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: auth-api-deployment
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: auth-api
-  template:
-    metadata:
-      labels:
-        app: auth-api
-    spec:
-      containers:
-        - name: auth-api
-          image: auth-api:latest
-          imagePullPolicy: Never # Use local image
-          env:
-            - name: JWT_SECRET_KEY
-              value: "un_secret_tres_fort_a_changer"
-            - name: DB_USER
-              value: "postgres"
-            - name: DB_PASSWORD
-              value: "password"
-            - name: DB_HOST
-              value: "db"
-            - name: DB_NAME
-              value: "tasksdb"
-          ports:
-            - containerPort: 8000
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: auth-api
-spec:
-  selector:
-    app: auth-api
-  ports:
-    - protocol: TCP
-      port: 8000
-      targetPort: 8000
+    # Tasks API
+    - name: tasks-api
+      image: tasks-api:latest
+      imagePullPolicy: Never
+      command: ["/home/appuser/.local/bin/uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8001"]
+      env:
+        - name: DB_USER
+          value: "postgres"
+        - name: DB_PASSWORD
+          value: "password"
+        - name: DB_HOST
+          value: "localhost"  # Changed from 'db' to 'localhost' for single pod
+        - name: DB_NAME
+          value: "tasksdb"
+        - name: JWT_SECRET_KEY
+          value: "un_secret_tres_fort_a_changer"
+      ports:
+        - containerPort: 8001
+          name: tasks-api
 
-# --- Tasks API ---
+    # Frontend (Nginx with reverse proxy)
+    - name: frontend
+      image: frontend:latest
+      imagePullPolicy: Never
+      env:
+        - name: AUTH_API_URL
+          value: "http://localhost:8000/"  # Added trailing slash for proper proxy_pass
+        - name: TASKS_API_URL
+          value: "http://localhost:8001/"  # Added trailing slash for proper proxy_pass
+      ports:
+        - containerPort: 80
+          hostPort: 8080  # Expose on host port 8080
 
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: tasks-api-deployment
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: tasks-api
-  template:
-    metadata:
-      labels:
-        app: tasks-api
-    spec:
-      containers:
-        - name: tasks-api
-          image: tasks-api:latest
-          imagePullPolicy: Never # Use local image
-          env:
-            - name: DB_USER
-              value: "postgres"
-            - name: DB_PASSWORD
-              value: "password"
-            - name: DB_HOST
-              value: "db"
-            - name: DB_NAME
-              value: "tasksdb"
-            - name: JWT_SECRET_KEY
-              value: "un_secret_tres_fort_a_changer"
-          ports:
-            - containerPort: 8000
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: tasks-api
-spec:
-  selector:
-    app: tasks-api
-  ports:
-    - protocol: TCP
-      port: 8000
-      targetPort: 8000
-
-# --- Frontend ---
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: frontend-deployment
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: frontend
-  template:
-    metadata:
-      labels:
-        app: frontend
-    spec:
-      containers:
-        - name: frontend
-          image: frontend:latest
-          imagePullPolicy: Never # Use local image
-          ports:
-            - containerPort: 80
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: frontend
-spec:
-  selector:
-    app: frontend
-  type: NodePort
-  ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 80
-      nodePort: 30080
+  volumes:
+    - name: postgres-storage
+      persistentVolumeClaim:
+        claimName: postgres-pvc
