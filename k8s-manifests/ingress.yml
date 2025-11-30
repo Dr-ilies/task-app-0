@@ -12,22 +12,10 @@ spec:
   rules:
     - http:
         paths:
-          - path: /auth/*
-            pathType: ImplementationSpecific
-            backend:
-              service:
-                name: auth-api
-                port:
-                  number: 8000
-          - path: /api/*
-            pathType: ImplementationSpecific
-            backend:
-              service:
-                name: tasks-api
-                port:
-                  number: 8000
-          - path: /*
-            pathType: ImplementationSpecific
+          # Route ALL traffic to frontend (Nginx)
+          # Nginx handles internal routing to /auth/ and /api/
+          - path: /
+            pathType: Prefix
             backend:
               service:
                 name: frontend
