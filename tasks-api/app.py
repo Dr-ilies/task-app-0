@@ -29,24 +29,6 @@ Base = declarative_base()
 engine = None
 SessionLocal = None
 
-# Attente active pour la DB (simple pour le TP, en prod utiliser "depends_on" ou un script)
-max_retries = 10
-retry_delay = 5
-for i in range(max_retries):
-    try:
-        engine = create_engine(DATABASE_URL)
-        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-        Base.metadata.create_all(bind=engine)
-        print("Connexion à la base de données réussie.")
-        break
-    except Exception as e:
-        print(f"Attente de la base de données... ({i+1}/{max_retries}). Erreur: {e}")
-        time.sleep(retry_delay)
-
-if engine is None:
-    print("Échec de la connexion à la base de données après plusieurs tentatives.")
-    exit(1)
-
 app = FastAPI()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -75,6 +57,11 @@ class TaskOut(BaseModel):
 
 # --- Dépendance DB ---
 def get_db():
+    if SessionLocal is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not initialized"
+        )
     db = SessionLocal()
     try:
         yield db
@@ -192,15 +179,26 @@ def health_check():
 
 @app.on_event("startup")
 def on_startup():
-    # Créer les tables au démarrage de l'application
-    Base.metadata.create_all(bind=engine)
-    pass
+    global engine, SessionLocal
+    # Tentative de connexion à la base de données au démarrage
+    max_retries = 10
+    retry_delay = 5
+    
+    for i in range(max_retries):
+        try:
+            print(f"Connecting to database at {DATABASE_URL}...")
+            engine = create_engine(DATABASE_URL)
+            SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+            Base.metadata.create_all(bind=engine)
+            print("Database connection successful.")
+            return
+        except Exception as e:
+            print(f"Waiting for database... ({i+1}/{max_retries}). Error: {e}")
+            time.sleep(retry_delay)
+    
+    print("Could not connect to database. Application will start but DB endpoints will fail.")
 
 if __name__ == "__main__":
     import uvicorn
-    # Cette vérification est redondante avec le check au démarrage, mais bonne pratique
-    #if SessionLocal is None:
-    #    print("L'application ne peut pas démarrer, échec de la connexion à la DB.")
-    #else:
     print("Démarrage du serveur Uvicorn...")
     uvicorn.run(app, host="0.0.0.0", port=8000)

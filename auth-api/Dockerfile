@@ -1,5 +1,6 @@
 # Étape 1: Base Python
 FROM python:3.10-slim
+ENV PYTHONUNBUFFERED=1
 
 # Définir le répertoire de travail
 WORKDIR /app
