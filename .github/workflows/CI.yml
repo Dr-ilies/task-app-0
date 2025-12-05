@@ -53,18 +53,6 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-      # Validate that required APIs are enabled
-      - name: Validate GCP Setup
-        run: |
-          echo "Checking if required APIs are enabled..."
-          gcloud services list --enabled --project=${{ env.PROJECT_ID }} --filter="name:artifactregistry.googleapis.com" --format="value(name)" > enabled_apis.txt
-          
-          if ! grep -q "artifactregistry.googleapis.com" enabled_apis.txt; then
-            echo "::error::Artifact Registry API is not enabled. Please run: gcloud services enable artifactregistry.googleapis.com"
-            exit 1
-          fi
-          
-          echo "✓ All required APIs are enabled"
 
       # --- Build and Push Images ---
       - name: Build and Push Auth API
