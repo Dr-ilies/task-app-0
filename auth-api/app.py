@@ -106,6 +106,17 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
+@app.get("/init-db")
+def init_db():
+    try:
+        global engine
+        if engine is None:
+             engine = create_engine(DATABASE_URL)
+        Base.metadata.create_all(bind=engine)
+        return {"status": "success", "message": "Tables created"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/health")
 def health_check():
     """Health check endpoint for Kubernetes liveness and readiness probes."""
