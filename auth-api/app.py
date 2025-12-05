@@ -110,11 +110,20 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 def init_db():
     try:
         global engine
+        
+        # --- DEBUG LOGGING ---
+        pwd_len = len(DB_PASSWORD) if DB_PASSWORD else 0
+        pwd_start = DB_PASSWORD[0] if DB_PASSWORD else "None"
+        pwd_end = DB_PASSWORD[-1] if DB_PASSWORD else "None"
+        print(f"DEBUG: User: {DB_USER}, Password Len: {pwd_len}, Start: '{pwd_start}', End: '{pwd_end}'")
+        # ---------------------
+
         if engine is None:
              engine = create_engine(DATABASE_URL)
         Base.metadata.create_all(bind=engine)
         return {"status": "success", "message": "Tables created"}
     except Exception as e:
+        print(f"DEBUG ERROR: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
