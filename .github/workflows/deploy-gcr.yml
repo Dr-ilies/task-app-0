@@ -73,5 +73,5 @@ jobs:
           region: ${{ env.REGION }}
           flags: '--allow-unauthenticated --project ${{ env.PROJECT_ID }}'
           env_vars: |
-            AUTH_API_URL=${{ steps.deploy-auth.outputs.url }}
-            TASKS_API_URL=${{ steps.deploy-tasks.outputs.url }}
+            AUTH_API_URL=${{ steps.deploy-auth.outputs.url }}/
+            TASKS_API_URL=${{ steps.deploy-tasks.outputs.url }}/
