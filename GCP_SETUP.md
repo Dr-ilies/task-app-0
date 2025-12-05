@@ -1,6 +1,6 @@
 # Google Cloud Platform Setup for CI/CD
 
-This guide walks you through configuring Google Cloud Platform (GCP) for automated deployment via GitHub Actions.
+This guide walks you through configuring Google Cloud Platform (GCP) for automated deployment via GitHub Actions. It supports both **Cloud Run** and **Google Kubernetes Engine (GKE)**.
 
 ## Prerequisites
 
@@ -10,27 +10,23 @@ This guide walks you through configuring Google Cloud Platform (GCP) for automat
 
 ## 1. Enable Required APIs
 
-First, enable the necessary Google Cloud APIs:
+Enable the necessary Google Cloud APIs for both Cloud Run and GKE:
 
 ```bash
-gcloud services enable run.googleapis.com
-gcloud services enable artifactregistry.googleapis.com
-gcloud services enable sqladmin.googleapis.com
-gcloud services enable cloudresourcemanager.googleapis.com
+gcloud services enable run.googleapis.com \
+    artifactregistry.googleapis.com \
+    sqladmin.googleapis.com \
+    cloudresourcemanager.googleapis.com \
+    container.googleapis.com
 ```
-
-> [!NOTE]
-> These commands require you to have sufficient permissions on your GCP project. If you encounter permission errors, ensure you have Owner or Editor role.
 
 ## 2. Create Service Account for GitHub Actions
 
-Create a dedicated service account for GitHub Actions deployments:
+Create a dedicated service account for deployments:
 
 ```bash
-# Replace PROJECT_ID with your actual GCP project ID
 export PROJECT_ID="your-project-id"
 
-# Create the service account
 gcloud iam service-accounts create github-actions-deployer \
     --display-name="GitHub Actions Deploy" \
     --description="Service account for deploying from GitHub Actions" \
@@ -46,6 +42,11 @@ Grant the necessary roles to the service account:
 gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:github-actions-deployer@${PROJECT_ID}.iam.gserviceaccount.com" \
     --role="roles/run.admin"
+
+# Kubernetes Engine Developer - Deploy to GKE
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:github-actions-deployer@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role="roles/container.developer"
 
 # Service Account User - Act as service accounts
 gcloud projects add-iam-policy-binding $PROJECT_ID \
@@ -63,20 +64,6 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
     --role="roles/cloudsql.client"
 ```
 
-### Alternative: Using Google Cloud Console
-
-If you prefer using the web interface:
-
-1. Go to [IAM & Admin → IAM](https://console.cloud.google.com/iam-admin/iam)
-2. Find the service account: `github-actions-deployer@[PROJECT_ID].iam.gserviceaccount.com`
-3. Click the **Edit** pencil icon
-4. Click **ADD ANOTHER ROLE** and add each of these roles:
-   - `Cloud Run Admin`
-   - `Service Account User`
-   - `Artifact Registry Writer`
-   - `Cloud SQL Client`
-5. Click **Save**
-
 ## 4. Create Service Account Key
 
 Generate a JSON key file for authentication:
@@ -89,10 +76,10 @@ gcloud iam service-accounts keys create gcp-key.json \
 > [!CAUTION]
 > **Keep this key secure!** It provides access to your GCP resources. Never commit it to version control.
 
-## 5. Create Artifact Registry Repository
+## 5. Resources Setup
 
-Create a Docker repository in Artifact Registry:
-
+### 5.1 Artifact Registry
+Create a Docker repository:
 ```bash
 gcloud artifacts repositories create task-app-repo \
     --repository-format=docker \
@@ -101,67 +88,22 @@ gcloud artifacts repositories create task-app-repo \
     --project=$PROJECT_ID
 ```
 
-## 6. Set Up Cloud SQL (If Not Already Done)
-
-If you haven't created a Cloud SQL instance:
-
+### 5.2 Cloud SQL
+Create a PostgreSQL instance:
 ```bash
-# Create Cloud SQL instance
 gcloud sql instances create tasksdb-instance \
     --database-version=POSTGRES_15 \
     --tier=db-f1-micro \
     --region=us-central1 \
     --project=$PROJECT_ID
 
-# Create database
-gcloud sql databases create tasksdb \
-    --instance=tasksdb-instance \
-    --project=$PROJECT_ID
-
-# Set root password
-gcloud sql users set-password postgres \
-    --instance=tasksdb-instance \
-    --password=YOUR_SECURE_PASSWORD \
-    --project=$PROJECT_ID
+gcloud sql databases create tasksdb --instance=tasksdb-instance --project=$PROJECT_ID
+gcloud sql users set-password postgres --instance=tasksdb-instance --password=YOUR_SECURE_PASSWORD --project=$PROJECT_ID
 ```
 
-## 7. Add GitHub Secrets
-
-Add the following secrets to your GitHub repository:
-
-1. Go to your GitHub repository
-2. Navigate to **Settings** → **Secrets and variables** → **Actions**
-3. Click **New repository secret** and add:
-
-| Secret Name | Value | Description |
-|------------|-------|-------------|
-| `GCP_PROJECT_ID` | Your GCP project ID | Project identifier |
-| `GCP_SA_KEY` | Contents of `gcp-key.json` | Service account credentials |
-| `DB_PASSWORD` | Your database password | PostgreSQL password |
-| `JWT_SECRET_KEY` | Your JWT secret | Authentication secret key |
-| `INSTANCE_CONNECTION_NAME` | `PROJECT:REGION:INSTANCE` | Cloud SQL connection string |
-
-> [!TIP]
-> For `INSTANCE_CONNECTION_NAME`, use format: `your-project:us-central1:your-db-instance`
-
-
-
-## 8. GKE Setup (Optional)
-
-If you plan to deploy to Google Kubernetes Engine (GKE), follow these additional steps:
-
-### 8.1 Enable GKE API
-
+### 5.3 GKE Cluster (For GKE Deployment)
+Create a cluster if deploying to Kubernetes:
 ```bash
-gcloud services enable container.googleapis.com
-```
-
-### 8.2 Create GKE Cluster
-
-Create a standard or autopilot cluster:
-
-```bash
-# Example: Create a standard zonal cluster
 gcloud container clusters create task-app-cluster \
     --zone us-central1-c \
     --num-nodes 3 \
@@ -169,35 +111,28 @@ gcloud container clusters create task-app-cluster \
     --project=$PROJECT_ID
 ```
 
-### 8.3 Grant GKE Permissions
+## 6. GitHub Secrets
 
-Grant the service account permission to deploy to GKE:
+Add the following secrets to your GitHub repository (**Settings** → **Secrets and variables** → **Actions**):
 
-```bash
-# Kubernetes Engine Developer - Deploy to GKE
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:github-actions-deployer@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role="roles/container.developer"
-```
+### Common Secrets
+| Secret Name | Description | Example Value |
+|------------|-------------|---------------|
+| `GCP_PROJECT_ID` | Your GCP Project ID | `my-gcp-project` |
+| `GCP_SA_KEY` | Content of `gcp-key.json` | `{ "type": "service_account"... }` |
+| `DB_PASSWORD` | Cloud SQL/Postgres Password | `superSecurePwd123!` |
+| `JWT_SECRET_KEY` | Secret for JWT signing | `randomLongString` |
 
-### 8.4 Add GKE Secrets
+### Cloud Run Specific
+| Secret Name | Description | Example Value |
+|------------|-------------|---------------|
+| `INSTANCE_CONNECTION_NAME` | Cloud SQL connection name | `project:region:instance` |
 
-Add these additional secrets to your GitHub repository:
-
-| Secret Name | Value | Description |
-|------------|-------|-------------|
-| `GKE_CLUSTER_NAME` | `task-app-cluster` | Name of your GKE cluster |
-| `GKE_ZONE` | `us-central1-c` | Zone of your GKE cluster |
-
-### 8.5 Configure kubectl (Local)
-
-To interact with your cluster locally:
-
-```bash
-gcloud container clusters get-credentials task-app-cluster \
-    --zone us-central1-c \
-    --project=$PROJECT_ID
-```
+### GKE Specific
+| Secret Name | Description | Example Value |
+|------------|-------------|---------------|
+| `GKE_CLUSTER_NAME` | Name of your GKE cluster | `task-app-cluster` |
+| `GKE_ZONE` | Zone of your GKE cluster | `us-central1-c` |
 
 ## Verification
 
@@ -210,63 +145,10 @@ To verify your setup:
        --filter="bindings.members:serviceAccount:github-actions-deployer@${PROJECT_ID}.iam.gserviceaccount.com"
    ```
 
-2. **Check enabled APIs**:
+2. **Check GKE Access** (if using GKE):
    ```bash
-   gcloud services list --enabled --project=$PROJECT_ID | grep -E 'run|artifact|sql'
+   gcloud container clusters get-credentials task-app-cluster --zone us-central1-c
+   kubectl get nodes
    ```
 
-3. **Test deployment**: Push a commit to your `main` branch and monitor the GitHub Actions workflow.
-
-## Troubleshooting
-
-### Permission Denied Errors
-
-If you see "Permission denied to enable service" errors:
-- Ensure all APIs are enabled (Step 1)
-- Verify service account has all required roles (Step 3)
-- Check that GitHub secrets are correctly configured (Step 5)
-
-### Authentication Failures
-
-If authentication fails:
-- Verify `GCP_SA_KEY` secret contains the complete JSON key
-- Ensure the service account key is valid and not expired
-- Check that the project ID in secrets matches your actual project
-
-### Database Connection Issues
-
-If Cloud Run services can't connect to the database:
-- Verify `INSTANCE_CONNECTION_NAME` is correct
-- Ensure Cloud SQL Admin API is enabled
-- Check that the service account has `Cloud SQL Client` role
-
-## Security Best Practices
-
-> [!WARNING]
-> **Production Recommendations**:
-> - Rotate service account keys regularly
-> - Use least-privilege IAM roles
-> - Enable VPC Service Controls for additional security
-> - Use Secret Manager instead of environment variables for sensitive data
-> - Implement Cloud Armor for DDoS protection
-
-## Clean Up
-
-To delete the service account key after rotating:
-
-```bash
-# List keys
-gcloud iam service-accounts keys list \
-    --iam-account=github-actions-deployer@${PROJECT_ID}.iam.gserviceaccount.com
-
-# Delete a specific key
-gcloud iam service-accounts keys delete KEY_ID \
-    --iam-account=github-actions-deployer@${PROJECT_ID}.iam.gserviceaccount.com
-```
-
-## Additional Resources
-
-- [Cloud Run Documentation](https://cloud.google.com/run/docs)
-- [IAM Roles Reference](https://cloud.google.com/iam/docs/understanding-roles)
-- [Artifact Registry Documentation](https://cloud.google.com/artifact-registry/docs)
-- [Cloud SQL Documentation](https://cloud.google.com/sql/docs)
+3. **Test Deployment**: Push to `main` (for GCR) or trigger the "Deploy to GKE" workflow manually.

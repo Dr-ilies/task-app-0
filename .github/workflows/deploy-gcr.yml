@@ -30,19 +30,6 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      # Validate that required APIs are enabled
-      - name: Validate GCP Setup
-        run: |
-          echo "Checking if required APIs are enabled..."
-          gcloud services list --enabled --project=${{ env.PROJECT_ID }} --filter="name:run.googleapis.com" --format="value(name)" > enabled_apis.txt
-          
-          if ! grep -q "run.googleapis.com" enabled_apis.txt; then
-            echo "::error::Cloud Run API is not enabled. Please run: gcloud services enable run.googleapis.com"
-            echo "::error::See GCP_SETUP.md for complete setup instructions"
-            exit 1
-          fi
-          
-          echo "✓ All required APIs are enabled"
 
       # --- Deploy Backends ---
       - name: Deploy Auth API

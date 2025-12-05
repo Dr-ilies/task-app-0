@@ -1,32 +1,34 @@
 # Project Overview
 
-This is a multi-service task management application. It consists of a frontend, an authentication API, and a tasks API. The application is designed to be run with Docker or Podman.
+This is a multi-service task management application. It consists of a frontend, an authentication API, and a tasks API. The application is designed to be run locally (Docker/Podman) or deployed to the cloud (Google Cloud Run, GKE).
 
 ## Architecture
 
 The application is composed of four main services:
 
-*   **Frontend:** A static web application built with HTML, CSS, and vanilla JavaScript. It is served by an Nginx web server acting as a reverse proxy.
-    *   **Port:** 8080 (Mapped to container port 80)
-    *   **Proxy Rules:**
+*   **Frontend:** A static web application built with HTML, CSS, and vanilla JavaScript.
+    *   **Server:** Nginx (acts as web server and reverse proxy).
+    *   **Port:** 8080 (Mapped to container port 80).
+    *   **Configuration:** Runtime environment variables (`AUTH_API_URL`, `TASKS_API_URL`) are injected via `envsubst` in Nginx.
+    *   **Proxy Rules (Local):**
         *   `/auth/` -> `auth-api:8000`
         *   `/api/` -> `tasks-api:8000`
 *   **Authentication API:** A FastAPI application that handles user registration and login.
-    *   **Port:** 8001 (Mapped to container port 8000)
-    *   **Database:** PostgreSQL (Shared `tasksdb`)
-    *   **Auth:** JWT (HS256)
+    *   **Port:** 8001 (Mapped to container port 8000).
+    *   **Database:** PostgreSQL (Shared `tasksdb`).
+    *   **Auth:** JWT (HS256).
 *   **Tasks API:** A FastAPI application that provides CRUD functionality for tasks.
-    *   **Port:** 8002 (Mapped to container port 8000)
-    *   **Database:** PostgreSQL (`tasksdb`)
-    *   **Auth:** JWT validation (Shared Secret)
-*   **Database:** A PostgreSQL database used by the Tasks API to store task data.
-    *   **Port:** 5432
+    *   **Port:** 8002 (Mapped to container port 8000).
+    *   **Database:** PostgreSQL (`tasksdb`).
+    *   **Auth:** JWT validation (Shared Secret).
+*   **Database:** A PostgreSQL database used by both the Auth API and Tasks API.
+    *   **Port:** 5432.
 
-## Building and Running
+## Local Development
 
-### Docker
+You can run the application locally using either Docker Compose or Podman.
 
-To build and run the application with Docker, use the following command:
+### Docker Compose
 
 ```bash
 docker-compose up --build
@@ -34,51 +36,50 @@ docker-compose up --build
 
 The application will be available at `http://localhost:8080`.
 
-### Podman
+### Podman (Kube Play)
 
-To build and run the application with Podman, first build the container images:
+For a Kubernetes-like local experience, we use `podman kube play` with a single-pod architecture defined in `podman-deployment.yml`.
 
-```bash
-podman build -t auth-api:latest -f auth-api/Dockerfile ./auth-api
-podman build -t tasks-api:latest -f tasks-api/Dockerfile ./tasks-api
-podman build -t frontend:latest -f frontend/Dockerfile ./frontend
-```
+1. **Build Images:**
+   ```bash
+   podman build -t auth-api:latest -f auth-api/Dockerfile ./auth-api
+   podman build -t tasks-api:latest -f tasks-api/Dockerfile ./tasks-api
+   podman build -t frontend:latest -f frontend/Dockerfile ./frontend
+   ```
 
-Then, deploy the application with:
+2. **Run Pod:**
+   ```bash
+   podman kube play podman-deployment.yml
+   ```
 
-```bash
-podman kube play podman-deployment.yml
-```
+   > [!NOTE]
+   > On Windows (WSL), `localhost` might not work directly. Use your WSL IP:
+   > `wsl ip addr show eth0 | findstr "inet "`
 
-The application will be available at `http://localhost:8080`.
+3. **Stop Pod:**
+   ```bash
+   podman kube down podman-deployment.yml
+   ```
 
-> [!NOTE]
-> On Windows (WSL), `localhost` might not work directly for Podman. Use the WSL IP address:
-> `wsl ip addr show eth0 | findstr "inet "`
+## Production Deployment
 
-To stop the application:
-```bash
-podman kube down podman-deployment.yml
-```
+The project supports deployment to Google Cloud Platform via GitHub Actions.
 
 ### Google Cloud Run
+Serverless deployment for individual containers. See [GCP_SETUP.md](GCP_SETUP.md) for detailed setup instructions.
+- **Workflow:** `.github/workflows/deploy-gcr.yml`
+- **Features:** Auto-scaling, Cloud SQL connection.
 
-For production deployment to Google Cloud Run, see [GCP_SETUP.md](GCP_SETUP.md) for:
-- Required IAM permissions setup
-- Service account configuration
-- GitHub Actions CI/CD deployment
-
-The GitHub Actions workflow in `.github/workflows/deploy-gcr.yml` automatically deploys on push to `main` branch.
+### Google Kubernetes Engine (GKE)
+Orchestrated deployment on a Kubernetes cluster. See [k8s-manifests/README.md](k8s-manifests/README.md) for manifest details and manual deployment steps.
+- **Workflow:** `.github/workflows/deploy-gke.yml`
+- **Features:** Persistent Volume Claims, Internal Networking, Ingress.
 
 ## Development Conventions
 
-*   **Backend:** Python 3.x using the **FastAPI** framework.
-    *   **Auth API:** Uses `sqlalchemy` for SQLite.
+*   **Backend:** Python 3.x using **FastAPI**.
+    *   **Auth API:** Uses `sqlalchemy` with PostgreSQL.
     *   **Tasks API:** Uses `sqlalchemy` and `psycopg2-binary` for PostgreSQL.
-*   **Frontend:** Vanilla HTML, CSS, and JavaScript.
-    *   Uses `fetch` API to communicate with backend services via Nginx proxy.
-*   **Authentication:** JSON Web Tokens (JWT) signed with `HS256`.
-    *   Shared secret key defined in environment variables (`JWT_SECRET_KEY`).
-*   **Containerization:**
-    *   `docker-compose.yml` for local development.
-    *   `podman-deployment.yml` for Kubernetes-like deployment with Podman.
+*   **Frontend:** Vanilla HTML, CSS, JavaScript served by Nginx.
+*   **Authentication:** JWT (HS256) with shared secret (`JWT_SECRET_KEY`).
+*   **CI/CD:** GitHub Actions for automated testing and deployment.
