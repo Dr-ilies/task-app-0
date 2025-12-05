@@ -1,5 +1,6 @@
 import time
 import os
+from urllib.parse import quote_plus
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -21,12 +22,14 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "password")
 DB_HOST = os.getenv("DB_HOST", "db")
 DB_NAME = os.getenv("DB_NAME", "tasksdb")
 # Build DATABASE_URL based on environment
+# URL-encode the password to handle special characters like @
+DB_PASSWORD_ENCODED = quote_plus(DB_PASSWORD)
 if DB_HOST.startswith("/cloudsql/"):
     # Cloud Run with Cloud SQL Proxy (Unix socket connection)
-    DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@/{DB_NAME}?host={DB_HOST}"
+    DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD_ENCODED}@/{DB_NAME}?host={DB_HOST}"
 else:
     # Local or GKE (TCP connection)
-    DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}"
+    DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD_ENCODED}@{DB_HOST}/{DB_NAME}"
 
 Base = declarative_base()
 engine = None
