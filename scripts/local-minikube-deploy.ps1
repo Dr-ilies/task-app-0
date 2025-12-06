@@ -16,13 +16,13 @@ Write-Host ""
 $clusterName = "task-app"
 $cacheDir = "scripts/.minikube-cache"
 $appImages = @(
-    @{Name = "auth-api"; PodmanTag = "localhost/auth-api:latest"; TarName = "auth-api.tar" },
-    @{Name = "tasks-api"; PodmanTag = "localhost/tasks-api:latest"; TarName = "tasks-api.tar" },
-    @{Name = "frontend"; PodmanTag = "localhost/frontend:latest"; TarName = "frontend.tar" }
+    @{Name = "auth-api"; BuildPath = "./auth-api" },
+    @{Name = "tasks-api"; BuildPath = "./tasks-api" },
+    @{Name = "frontend"; BuildPath = "./frontend" }
 )
 
 # Step 1: Check prerequisites
-Write-Host "[1/6] Checking prerequisites..." -ForegroundColor Yellow
+Write-Host "[1/5] Checking prerequisites..." -ForegroundColor Yellow
 
 if (-not (Get-Command minikube -ErrorAction SilentlyContinue)) {
     Write-Host "  ERROR: 'minikube' is not installed. Install from: https://minikube.sigs.k8s.io/" -ForegroundColor Red
@@ -35,83 +35,35 @@ if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) {
     exit 1
 }
 Write-Host "  kubectl: OK" -ForegroundColor Green
-
-if (-not (Get-Command podman -ErrorAction SilentlyContinue)) {
-    Write-Host "  ERROR: 'podman' is not installed." -ForegroundColor Red
-    exit 1
-}
-Write-Host "  podman: OK" -ForegroundColor Green
 Write-Host ""
 
-# Ensure cache directory exists
+# Ensure cache directory exists (still used for temp manifests)
 New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
 
-# Step 2: Build and cache images
-if ($SkipBuild) {
-    Write-Host "[2/6] Skipping image build (-SkipBuild specified)..." -ForegroundColor Yellow
-    
-    # Verify cached images exist
-    $missingCache = @()
-    foreach ($img in $appImages) {
-        $tarPath = Join-Path $cacheDir $img.TarName
-        if (-not (Test-Path $tarPath)) {
-            $missingCache += $img.Name
-        }
-    }
-    
-    if ($missingCache.Count -gt 0) {
-        Write-Host "  ERROR: Missing cached images: $($missingCache -join ', ')" -ForegroundColor Red
-        Write-Host "  Run without -SkipBuild to build and cache images." -ForegroundColor Yellow
-        exit 1
-    }
-    Write-Host "  All app images cached" -ForegroundColor Green
-    Write-Host ""
-}
-else {
-    Write-Host "[2/6] Building and caching container images..." -ForegroundColor Yellow
-    Write-Host ""
-
-    $buildPaths = @{
-        "auth-api"  = "./auth-api"
-        "tasks-api" = "./tasks-api"
-        "frontend"  = "./frontend"
-    }
-
-    foreach ($img in $appImages) {
-        $tarPath = Join-Path $cacheDir $img.TarName
-        
-        Write-Host "  Building $($img.Name)..." -ForegroundColor Gray
-        podman build -t "$($img.Name):latest" -f "$($buildPaths[$img.Name])/Dockerfile" $buildPaths[$img.Name]
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  ERROR: Failed to build $($img.Name)" -ForegroundColor Red
-            exit 1
-        }
-        
-        Write-Host "  Caching $($img.Name)..." -ForegroundColor Gray
-        podman save $img.PodmanTag -o $tarPath 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  ERROR: Failed to cache $($img.Name)" -ForegroundColor Red
-            exit 1
-        }
-    }
-    Write-Host "  All images built and cached" -ForegroundColor Green
-    Write-Host ""
-}
-
-# Step 3: Create/Start Minikube cluster
+# Step 2: Create/Start Minikube cluster
 if ($SkipCluster) {
-    Write-Host "[3/6] Skipping cluster creation (-SkipCluster specified)..." -ForegroundColor Yellow
+    Write-Host "[2/5] Checking if cluster exists..." -ForegroundColor Yellow
     
     $status = minikube status -p $clusterName --format "{{.Host}}" 2>$null
-    if ($status -ne "Running") {
+    if (-not $status) {
+        Write-Host "  WARNING: Cluster '$clusterName' not found! Ignoring -SkipCluster and creating it." -ForegroundColor Yellow
+        $SkipCluster = $false
+    }
+    elseif ($status -ne "Running") {
         Write-Host "  Starting existing cluster..." -ForegroundColor Gray
         minikube start -p $clusterName
+        Write-Host "  Using cluster '$clusterName'" -ForegroundColor Green
+        Write-Host ""
     }
-    Write-Host "  Using cluster '$clusterName'" -ForegroundColor Green
-    Write-Host ""
+    else {
+        Write-Host "  Using running cluster '$clusterName'" -ForegroundColor Green
+        Write-Host ""
+    }
 }
-else {
-    Write-Host "[3/6] Creating Minikube cluster..." -ForegroundColor Yellow
+
+$clusterCreated = $false
+if (-not $SkipCluster) {
+    Write-Host "[2/5] Creating Minikube cluster..." -ForegroundColor Yellow
     
     # Check if cluster exists
     $status = minikube status -p $clusterName --format "{{.Host}}" 2>$null
@@ -129,27 +81,65 @@ else {
         exit 1
     }
     
+    $clusterCreated = $true
     Write-Host "  Cluster created" -ForegroundColor Green
     Write-Host ""
 }
 
-# Step 4: Load images into Minikube
-Write-Host "[4/6] Loading images into Minikube..." -ForegroundColor Yellow
-
-foreach ($img in $appImages) {
-    $tarPath = Join-Path $cacheDir $img.TarName
-    Write-Host "  Loading $($img.Name)..." -ForegroundColor Gray
-    minikube -p $clusterName image load $tarPath
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  WARNING: Failed to load $($img.Name)" -ForegroundColor Yellow
+# Step 3: Build images (In-Cluster)
+if ($SkipBuild -and -not $clusterCreated) {
+    Write-Host "[3/5] Skipping image build (-SkipBuild specified)..." -ForegroundColor Yellow
+    
+    # Verify existence of in-cluster images
+    Write-Host "  Verifying cached images..." -ForegroundColor Gray
+    $existingImages = minikube -p $clusterName image ls 2>$null
+    $imagesMissing = $false
+    
+    foreach ($img in $appImages) {
+        # Check matching tag (simple string match usually sufficient for latest)
+        if ($existingImages -notmatch "$($img.Name):latest") {
+            Write-Host "  WARNING: Image '$($img.Name)' not found in cluster!" -ForegroundColor Yellow
+            $imagesMissing = $true
+        }
+    }
+    
+    if ($imagesMissing) {
+        Write-Host "  Forcing build to fix missing images..." -ForegroundColor Yellow
+        $SkipBuild = $false
+    }
+    else {
+        Write-Host "  All images found." -ForegroundColor Green
     }
 }
+elseif ($SkipBuild -and $clusterCreated) {
+    Write-Host "[3/5] Force enabling build (New cluster created, images are missing)..." -ForegroundColor Yellow
+    $SkipBuild = $false
+}
 
-Write-Host "  Images loaded" -ForegroundColor Green
-Write-Host ""
+if (-not $SkipBuild) {
+    Write-Host "[3/5] Building images (In-Cluster)..." -ForegroundColor Yellow
+    Write-Host "  This uses the Minikube docker daemon directly. No local save/load needed." -ForegroundColor Gray
+    Write-Host ""
 
-# Step 5: Enable ingress addon
-Write-Host "[5/6] Enabling ingress addon..." -ForegroundColor Yellow
+    foreach ($img in $appImages) {
+        Write-Host "  Building $($img.Name)..." -ForegroundColor Gray
+        
+        # Use minikube image build
+        # Note: -f is relative to context root. Since context is $img.BuildPath and Dockerfile is at root of it, 
+        # we can omit -f (defaults to Dockerfile) or use -f Dockerfile.
+        minikube -p $clusterName image build -t "$($img.Name):latest" $img.BuildPath
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  ERROR: Failed to build $($img.Name)" -ForegroundColor Red
+            exit 1
+        }
+    }
+    Write-Host "  All images built in-cluster" -ForegroundColor Green
+    Write-Host ""
+}
+
+# Step 4: Enable ingress addon
+Write-Host "[4/5] Enabling ingress addon..." -ForegroundColor Yellow
 
 minikube -p $clusterName addons enable ingress
 if ($LASTEXITCODE -ne 0) {
@@ -165,8 +155,8 @@ kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.
 
 Write-Host ""
 
-# Step 6: Deploy application
-Write-Host "[6/6] Deploying application..." -ForegroundColor Yellow
+# Step 5: Deploy application
+Write-Host "[5/5] Deploying application..." -ForegroundColor Yellow
 Write-Host ""
 
 $manifestsDir = "k8s-manifests"
@@ -185,9 +175,11 @@ foreach ($file in $deployOrder) {
     $tempPath = Join-Path $tempDir $file
 
     $content = Get-Content $sourcePath -Raw
-    $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/auth-api:latest', 'localhost/auth-api:latest'
-    $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/tasks-api:latest', 'localhost/tasks-api:latest'
-    $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/frontend:latest', 'localhost/frontend:latest'
+    # Replace default GCR images with simple tag names (minikube uses local registry by default for these)
+    # Important: Set PullPolicy to Never to force using the built image
+    $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/auth-api:latest', 'auth-api:latest'
+    $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/tasks-api:latest', 'tasks-api:latest'
+    $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/frontend:latest', 'frontend:latest'
     $content = $content -replace 'imagePullPolicy: Always', 'imagePullPolicy: Never'
     $content | Set-Content $tempPath -NoNewline
 

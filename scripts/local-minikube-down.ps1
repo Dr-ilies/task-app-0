@@ -2,7 +2,8 @@
 # Tear down Minikube cluster deployment
 
 param(
-    [switch]$KeepCluster  # Keep the cluster, only delete the namespace
+    [switch]$KeepCluster,  # Keep the cluster, only delete the namespace
+    [switch]$SkipCluster   # Alias for KeepCluster (Skip cluster deletion)
 )
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -12,7 +13,7 @@ Write-Host ""
 
 $clusterName = "task-app"
 
-if ($KeepCluster) {
+if ($KeepCluster -or $SkipCluster) {
     Write-Host "Deleting task-app namespace (keeping cluster)..." -ForegroundColor Yellow
     kubectl delete namespace task-app --ignore-not-found
     

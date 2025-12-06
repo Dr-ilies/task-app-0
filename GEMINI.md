@@ -93,6 +93,7 @@ For a **full Kubernetes cluster** with real DNS resolution, use Kind with Podman
 
 1. **Deploy:**
    ```powershell
+   .\scripts\local-kind-deploy-with-registry.ps1 -SkipBuild -SkipCluster # deploy
    .\scripts\local-kind-deploy.ps1 # full deploy (builds and caches everything)
    .\scripts\local-kind-deploy.ps1 -SkipBuild # redeploy
    .\scripts\local-kind-deploy.ps1 -SkipBuild -SkipCluster # Quick redeploy (uses all caches)
@@ -130,19 +131,26 @@ Alternative to Kind with built-in addons. Uses Podman as the driver.
 3. **Tear Down:**
    ```powershell
    .\scripts\local-minikube-down.ps1
+   .\scripts\local-minikube-down.ps1 -SkipCluster
    ```
 
 ### Deployment Method Comparison
 
-| Method | Use Case | Kubernetes DNS | Ingress | Complexity |
-|--------|----------|----------------|---------|------------|
-| **Docker Compose** | Quick development | ❌ | ❌ | Low |
-| **Podman Single Pod** | Simple K8s-like dev | ❌ (same pod) | ❌ | Low |
-| **Podman K8s** | Pre-deployment testing | ❌ (IP injection) | ❌ | Medium |
-| **Kind** | Full GKE parity | ✅ | ✅ | Medium |
-| **Minikube** | Full GKE parity | ✅ | ✅ | Medium |
+| Method                | Best Use Case                     | Build & Deploy Mechanism           | Kubernetes Parity              | Ingress & Networking       | Pros                        | Cons                            |
+| :-------------------- | :-------------------------------- | :--------------------------------- | :----------------------------- | :------------------------- | :-------------------------- | :------------------------------ |
+| **Docker Compose**    | Rapid UI/Backend changes          | **Bind Mounts** (Hot Reload)       | ❌ None                        | ❌ Localhost ports         | ⚡ Fastest feedback loop    | No K8s logic testing            |
+| **Podman Single Pod** | Debugging container interactions  | Manual `podman build`              | ⚠️ Low (Shared network ns)    | ❌ Port mapping only       | Simple, no cluster overhead | Limited isolation               |
+| **Podman K8s**        | Testing deployment scripts        | Scripted `play kube`               | ⚠️ Medium (Manifest support)  | ❌ No Ingress controller   | Uses actual K8s manifests   | IP injection quirks             |
+| **Kind**              | **CI/CD & Production Simulation** | **Local Registry** (Cached images) | ✅ **High** (Docker-in-Docker) | ✅ **Full Ingress Support**| **Best for GKE parity**     | Requires registry setup         |
+| **Minikube**          | **Local K8s Experimentation**     | **In-Cluster Build** (Direct)      | ✅ **High** (VM/Container)     | ✅ **Minikube Tunnel**     | **No registry needed**      | Slightly heavier resource usage |
 
-**Recommendation:** Use Docker Compose for daily development. Use Kind or Minikube for testing k8s-manifests with full Kubernetes features before deploying to GKE.
+**Key Differences:**
+*   **Kind** uses a persistent local registry (`localhost:5001`). Best if you switch between branches often (images stay cached).
+*   **Minikube** builds directly inside the cluster's Docker daemon. Simpler architecture (no registry container), but images are lost if cluster is deleted.
+
+**Recommendation:**
+*   Start with **Docker Compose** for logic/UI work.
+*   Use **Minikube** (`local-minikube-deploy.ps1`) for final integration testing before committing.
 
 
 
