@@ -12,7 +12,29 @@ env:
   REPO_NAME: task-app-repo
 
 jobs:
+  # JOB 1: Detect Changes
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      auth-api: ${{ steps.filter.outputs.auth-api }}
+      tasks-api: ${{ steps.filter.outputs.tasks-api }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            auth-api:
+              - 'auth-api/**'
+            tasks-api:
+              - 'tasks-api/**'
+            frontend:
+              - 'frontend/**'
+
+  # JOB 2: Run Tests (Conditional)
   test:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -23,34 +45,27 @@ jobs:
         with:
           python-version: "3.10"
 
+      # Test Auth API (Only if changed)
       - name: Test Auth API
+        if: needs.changes.outputs.auth-api == 'true'
         run: |
           pip install -r auth-api/requirements.txt
           pytest auth-api/
 
+      # Test Tasks API (Only if changed)
       - name: Test Tasks API
+        if: needs.changes.outputs.tasks-api == 'true'
         run: |
           pip install -r tasks-api/requirements.txt
           pytest tasks-api/
 
+  # JOB 3: Build and Push (Conditional + Safety Check)
   build-and-push:
-    needs: test
+    needs: [changes, test]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
-      # Detect changes in specific folders
-      - uses: dorny/paths-filter@v2
-        id: changes
-        with:
-          filters: |
-            auth-api:
-              - 'auth-api/**'
-            tasks-api:
-              - 'tasks-api/**'
-            frontend:
-              - 'frontend/**'
 
       - name: Google Auth
         uses: google-github-actions/auth@v1
@@ -65,21 +80,56 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-      # --- Build and Push Images ---
+      # --- Auth API ---
+      - name: Check Auth API Image
+        id: check-auth
+        run: |
+          if docker manifest inspect ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:latest > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Auth API image found."
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Auth API image NOT found."
+          fi
+
       - name: Build and Push Auth API
-        if: steps.changes.outputs.auth-api == 'true'
+        if: needs.changes.outputs.auth-api == 'true' || steps.check-auth.outputs.exists == 'false'
         run: |
           docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:latest -f auth-api/Dockerfile ./auth-api
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:latest
 
+      # --- Tasks API ---
+      - name: Check Tasks API Image
+        id: check-tasks
+        run: |
+          if docker manifest inspect ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/tasks-api:latest > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tasks API image found."
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tasks API image NOT found."
+          fi
+
       - name: Build and Push Tasks API
-        if: steps.changes.outputs.tasks-api == 'true'
+        if: needs.changes.outputs.tasks-api == 'true' || steps.check-tasks.outputs.exists == 'false'
         run: |
           docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/tasks-api:latest -f tasks-api/Dockerfile ./tasks-api
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/tasks-api:latest
 
+      # --- Frontend ---
+      - name: Check Frontend Image
+        id: check-frontend
+        run: |
+          if docker manifest inspect ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/frontend:latest > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Frontend image found."
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Frontend image NOT found."
+          fi
+
       - name: Build and Push Frontend
-        if: steps.changes.outputs.frontend == 'true'
+        if: needs.changes.outputs.frontend == 'true' || steps.check-frontend.outputs.exists == 'false'
         run: |
           docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/frontend:latest -f frontend/Dockerfile ./frontend
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/frontend:latest
