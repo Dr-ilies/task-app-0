@@ -1,9 +1,9 @@
 name: CI
 
 on:
-  #push:
-    #branches:
-      #- main
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 env:
@@ -21,7 +21,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Test Auth API
         run: |
@@ -40,6 +40,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # Detect changes in specific folders
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            auth-api:
+              - 'auth-api/**'
+            tasks-api:
+              - 'tasks-api/**'
+            frontend:
+              - 'frontend/**'
+
       - name: Google Auth
         uses: google-github-actions/auth@v1
         with:
@@ -53,19 +65,21 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-
       # --- Build and Push Images ---
       - name: Build and Push Auth API
+        if: steps.changes.outputs.auth-api == 'true'
         run: |
           docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:latest -f auth-api/Dockerfile ./auth-api
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:latest
 
       - name: Build and Push Tasks API
+        if: steps.changes.outputs.tasks-api == 'true'
         run: |
           docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/tasks-api:latest -f tasks-api/Dockerfile ./tasks-api
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/tasks-api:latest
 
       - name: Build and Push Frontend
+        if: steps.changes.outputs.frontend == 'true'
         run: |
           docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/frontend:latest -f frontend/Dockerfile ./frontend
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/frontend:latest

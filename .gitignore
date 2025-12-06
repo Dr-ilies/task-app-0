@@ -1,3 +1,11 @@
 __pycache__/ 
 *.db 
+*.log 
+*.tar
 .venv/ 
+
+# Local Kubernetes deployment cache and temp files
+scripts/.kind-cache/
+scripts/.minikube-cache/
+scripts/.tmp-*/
+scripts/.kind-config.yml

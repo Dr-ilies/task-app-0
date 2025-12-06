@@ -1,94 +1,203 @@
 <!DOCTYPE html>
 <html lang="fr">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestion de Tâches</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; background-color: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-        .container { max-width: 600px; margin: auto; background-color: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); padding: 2em; }
-        .hidden { display: none; }
-        h1, h2 { text-align: center; color: #333; }
-        input[type="text"], input[type="password"] { 
-            margin-bottom: 12px; 
-            width: 100%; 
-            padding: 12px; 
-            box-sizing: border-box; 
-            border: 1px solid #ddd; 
-            border-radius: 6px; 
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
         }
-        button { 
-            padding: 12px 18px; 
-            border: none; 
-            border-radius: 6px; 
-            cursor: pointer; 
-            font-weight: 600; 
-            transition: background-color 0.2s; 
+
+        .container {
+            max-width: 600px;
+            margin: auto;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            padding: 2em;
         }
-        #login-btn { background-color: #007bff; color: white; }
-        #login-btn:hover { background-color: #0056b3; }
-        #register-btn { background-color: #6c757d; color: white; margin-left: 8px; }
-        #register-btn:hover { background-color: #5a6268; }
-        #logout-btn { background-color: #dc3545; color: white; float: right; }
-        #logout-btn:hover { background-color: #c82333; }
-        #add-task-btn { background-color: #28a745; color: white; width: 100%; margin-top: 8px; }
-        #add-task-btn:hover { background-color: #218838; }
-        
-        #new-task-form { display: flex; margin-bottom: 1em; }
-        #new-task-form input { flex-grow: 1; margin-bottom: 0; }
-        #new-task-form button { margin-left: 8px; background-color: #28a745; color: white; }
-        #new-task-form button:hover { background-color: #218838; }
-        
-        ul { list-style: none; padding: 0; margin-top: 1em; }
-        li { 
-            padding: 12px; 
-            border-bottom: 1px solid #eee; 
-            display: flex; 
-            align-items: center; 
-            justify-content: space-between; 
+
+        .hidden {
+            display: none;
         }
-        li:last-child { border-bottom: none; }
-        
-        .task-checkbox { margin-right: 12px; }
-        .task-title { 
-            flex-grow: 1; 
-            cursor: pointer; 
-            transition: color 0.2s; 
+
+        h1,
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            margin-bottom: 12px;
+            width: 100%;
+            padding: 12px;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+
+        button {
+            padding: 12px 18px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+
+        #login-btn {
+            background-color: #007bff;
+            color: white;
+        }
+
+        #login-btn:hover {
+            background-color: #0056b3;
+        }
+
+        #register-btn {
+            background-color: #6c757d;
+            color: white;
+            margin-left: 8px;
+        }
+
+        #register-btn:hover {
+            background-color: #5a6268;
+        }
+
+        #logout-btn {
+            background-color: #dc3545;
+            color: white;
+            float: right;
+        }
+
+        #logout-btn:hover {
+            background-color: #c82333;
+        }
+
+        #add-task-btn {
+            background-color: #28a745;
+            color: white;
+            width: 100%;
+            margin-top: 8px;
+        }
+
+        #add-task-btn:hover {
+            background-color: #218838;
+        }
+
+        #new-task-form {
+            display: flex;
+            margin-bottom: 1em;
+        }
+
+        #new-task-form input {
+            flex-grow: 1;
+            margin-bottom: 0;
+        }
+
+        #new-task-form button {
+            margin-left: 8px;
+            background-color: #28a745;
+            color: white;
+        }
+
+        #new-task-form button:hover {
+            background-color: #218838;
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+            margin-top: 1em;
+        }
+
+        li {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        li:last-child {
+            border-bottom: none;
+        }
+
+        .task-checkbox {
+            margin-right: 12px;
+        }
+
+        .task-title {
+            flex-grow: 1;
+            cursor: pointer;
+            transition: color 0.2s;
             margin-right: 10px;
         }
-        .task-title:hover { color: #007bff; }
-        .task-title.completed { text-decoration: line-through; color: #888; }
-        
-        .delete-btn { 
-            background-color: transparent; 
-            color: #dc3545; 
+
+        .task-title:hover {
+            color: #007bff;
+        }
+
+        .task-title.completed {
+            text-decoration: line-through;
+            color: #888;
+        }
+
+        .delete-btn {
+            background-color: transparent;
+            color: #dc3545;
             border: 1px solid #dc3545;
             padding: 6px 10px;
             font-size: 0.9em;
             margin-left: 8px;
-            flex-shrink: 0; /* Empêche le bouton d'être écrasé */
-        }
-        .delete-btn:hover { background-color: #dc3545; color: white; }
-
-        .edit-input { 
-            flex-grow: 1; 
-            padding: 8px; 
-            border: 1px solid #007bff; 
-            border-radius: 4px; 
-            font: inherit; 
+            flex-shrink: 0;
+            /* Empêche le bouton d'être écrasé */
         }
 
-        #auth-msg, #task-msg { 
-            text-align: center; 
-            padding: 10px; 
-            border-radius: 6px; 
-            margin-top: 1em; 
+        .delete-btn:hover {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        .edit-input {
+            flex-grow: 1;
+            padding: 8px;
+            border: 1px solid #007bff;
+            border-radius: 4px;
+            font: inherit;
+        }
+
+        #auth-msg,
+        #task-msg {
+            text-align: center;
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 1em;
             font-weight: 500;
         }
-        #auth-msg:not(:empty) { background-color: #f8d7da; color: #721c24; }
-        #task-msg:not(:empty) { background-color: #d4edda; color: #155724; }
+
+        #auth-msg:not(:empty) {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        #task-msg:not(:empty) {
+            background-color: #d4edda;
+            color: #155724;
+        }
     </style>
 </head>
+
 <body>
     <div class="container">
         <!-- Section Login/Register -->
@@ -186,12 +295,12 @@
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
             authMsg.textContent = '';
-            
+
             if (!username || !password) {
                 authMsg.textContent = 'Veuillez remplir tous les champs.';
                 return;
             }
-            
+
             const formData = new URLSearchParams();
             formData.append('username', username);
             formData.append('password', password);
@@ -224,13 +333,13 @@
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (response.status === 401) return showAuth('Session expirée. Veuillez vous reconnecter.');
-                
+
                 const tasks = await response.json();
-                tasksList.innerHTML = ''; 
+                tasksList.innerHTML = '';
                 tasks.forEach(task => {
                     tasksList.appendChild(createTaskElement(task));
                 });
-            } catch (e) { 
+            } catch (e) {
                 console.error('Erreur chargement tâches:', e);
                 taskMsg.textContent = 'Erreur lors du chargement des tâches.';
             }
@@ -269,7 +378,7 @@
             li.appendChild(checkbox);
             li.appendChild(titleSpan);
             li.appendChild(deleteBtn);
-            
+
             return li;
         }
 
@@ -335,7 +444,7 @@
         function editTaskTitle(li) {
             const titleSpan = li.querySelector('.task-title');
             const currentTitle = titleSpan.textContent;
-            
+
             const input = document.createElement('input');
             input.type = 'text';
             input.value = currentTitle;
@@ -396,7 +505,7 @@
                 } else {
                     taskMsg.textContent = 'Erreur lors de l\'ajout de la tâche.';
                 }
-            } catch (e) { 
+            } catch (e) {
                 console.error('Erreur réseau ajout tâche:', e);
                 taskMsg.textContent = 'Erreur réseau lors de l\'ajout.';
             }
@@ -409,4 +518,5 @@
         }
     </script>
 </body>
+
 </html>

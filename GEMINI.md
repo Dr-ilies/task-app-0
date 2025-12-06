@@ -28,10 +28,11 @@ The application is composed of four main services:
 
 You can run the application locally using either Docker Compose or Podman.
 
-### Docker Compose
+### Docker Compose / podman
 
 ```bash
 docker-compose up --build
+podman compose up --build
 ```
 
 The application will be available at `http://localhost:8080`.
@@ -60,6 +61,90 @@ For a Kubernetes-like local experience, we use `podman kube play` with a single-
    ```bash
    podman kube down podman-deployment.yml
    ```
+
+### Podman (K8s Manifests)
+
+For testing production-like Kubernetes deployment locally, use the helper scripts that deploy `k8s-manifests/` directly with Podman. This method uses the same manifests as GKE deployment, ensuring parity between local and production environments.
+
+1. **Deploy:**
+   ```powershell
+   .\scripts\local-k8s-deploy.ps1 -SkipBuild
+   ```
+
+   The script will:
+   - Build all images locally
+   - Process k8s-manifests for local compatibility
+   - Deploy in correct order (database → auth-api → tasks-api → frontend)
+   - Display access information
+
+2. **Tear Down:**
+   ```powershell
+   .\scripts\local-k8s-down.ps1
+   ```
+
+   > [!NOTE]
+   > Any changes to `k8s-manifests/` will automatically be reflected when you redeploy using this method.
+
+### Kind (Kubernetes IN Docker)
+
+For a **full Kubernetes cluster** with real DNS resolution, use Kind with Podman. This gives you the closest experience to GKE, including namespace support, services, and ingress.
+
+**Prerequisites:** Install [Kind](https://kind.sigs.k8s.io/) and [kubectl](https://kubernetes.io/docs/tasks/tools/).
+
+1. **Deploy:**
+   ```powershell
+   .\scripts\local-kind-deploy.ps1 # full deploy (builds and caches everything)
+   .\scripts\local-kind-deploy.ps1 -SkipBuild # redeploy
+   .\scripts\local-kind-deploy.ps1 -SkipBuild -SkipCluster # Quick redeploy (uses all caches)
+   ```
+
+   The script will:
+   - Create a Kind cluster using Podman
+   - Load container images into the cluster
+   - Install NGINX Ingress Controller
+   - Deploy all k8s-manifests with full Kubernetes DNS
+
+2. **Tear Down:**
+   ```powershell
+   .\scripts\local-kind-down.ps1           # Delete entire cluster
+   .\scripts\local-kind-down.ps1 -KeepCluster  # Keep cluster, delete namespace only
+   ```
+
+   > [!TIP]
+   > Use `-KeepCluster` for faster redeployment. Then redeploy with `.\scripts\local-kind-deploy.ps1 -SkipCluster`.
+
+### Minikube
+
+Alternative to Kind with built-in addons. Uses Podman as the driver.
+
+**Prerequisites:** Install [Minikube](https://minikube.sigs.k8s.io/) and [kubectl](https://kubernetes.io/docs/tasks/tools/).
+
+1. **Deploy:**
+   ```powershell
+   .\scripts\local-minikube-deploy.ps1
+   .\scripts\local-minikube-deploy.ps1 -SkipBuild -SkipCluster  # Quick redeploy
+   ```
+
+2. **Access:** Run `minikube -p task-app tunnel` then visit http://localhost
+
+3. **Tear Down:**
+   ```powershell
+   .\scripts\local-minikube-down.ps1
+   ```
+
+### Deployment Method Comparison
+
+| Method | Use Case | Kubernetes DNS | Ingress | Complexity |
+|--------|----------|----------------|---------|------------|
+| **Docker Compose** | Quick development | ❌ | ❌ | Low |
+| **Podman Single Pod** | Simple K8s-like dev | ❌ (same pod) | ❌ | Low |
+| **Podman K8s** | Pre-deployment testing | ❌ (IP injection) | ❌ | Medium |
+| **Kind** | Full GKE parity | ✅ | ✅ | Medium |
+| **Minikube** | Full GKE parity | ✅ | ✅ | Medium |
+
+**Recommendation:** Use Docker Compose for daily development. Use Kind or Minikube for testing k8s-manifests with full Kubernetes features before deploying to GKE.
+
+
 
 ## Production Deployment
 
