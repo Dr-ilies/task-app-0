@@ -1,7 +1,19 @@
 #!/usr/bin/env pwsh
-# Local Kubernetes Deployment with Minikube
-# This script creates a Minikube cluster and deploys the application
-# using the k8s-manifests with full Kubernetes DNS support
+# =================================================================================================
+# SCRIPT: Local Kubernetes using Minikube
+# =================================================================================================
+# WELCOME STUDENTS!
+# "Minikube" is a tool that runs a single-node Kubernetes cluster inside a Virtual Machine (VM)
+# or a Docker container.
+#
+# HOW IS THIS DIFFERENT FROM KIND?
+# - Kind = "Kubernetes IN Docker". It's a Docker container acting as a node.
+# - Minikube = More mature, supports many drivers (VirtualBox, HyperV, Docker, Podman).
+#
+# KEY FEATURE: "Minikube Tunnel"
+# Minikube has a built-in feature called 'minikube tunnel' that can assign External IPs
+# to Services with type=LoadBalancer. This is excellent for testing Ingress.
+# =================================================================================================
 
 param(
     [switch]$SkipBuild,      # Skip building container images
@@ -21,219 +33,140 @@ $appImages = @(
     @{Name = "frontend"; BuildPath = "./frontend" }
 )
 
-# Step 1: Check prerequisites
+# =================================================================================================
+# STEP 1: Prerequisites
+# =================================================================================================
 Write-Host "[1/5] Checking prerequisites..." -ForegroundColor Yellow
 
 if (-not (Get-Command minikube -ErrorAction SilentlyContinue)) {
-    Write-Host "  ERROR: 'minikube' is not installed. Install from: https://minikube.sigs.k8s.io/" -ForegroundColor Red
-    exit 1
+    Write-Host "  ERROR: 'minikube' is not installed." -ForegroundColor Red; exit 1
 }
-Write-Host "  minikube: OK" -ForegroundColor Green
-
 if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) {
-    Write-Host "  ERROR: 'kubectl' is not installed." -ForegroundColor Red
-    exit 1
+    Write-Host "  ERROR: 'kubectl' is not installed." -ForegroundColor Red; exit 1
 }
-Write-Host "  kubectl: OK" -ForegroundColor Green
-Write-Host ""
-
-# Ensure cache directory exists (still used for temp manifests)
+Write-Host "  All tools ready." -ForegroundColor Green
 New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
 
-# Step 2: Create/Start Minikube cluster
+# =================================================================================================
+# STEP 2: Create Cluster
+# =================================================================================================
 if ($SkipCluster) {
-    Write-Host "[2/5] Checking if cluster exists..." -ForegroundColor Yellow
-    
+    # Logic to check if cluster exists. If not, force creation.
+    Write-Host "[2/5] Checking cluster..." -ForegroundColor Yellow
     $status = minikube status -p $clusterName --format "{{.Host}}" 2>$null
-    if (-not $status) {
-        Write-Host "  WARNING: Cluster '$clusterName' not found! Ignoring -SkipCluster and creating it." -ForegroundColor Yellow
-        $SkipCluster = $false
-    }
-    elseif ($status -ne "Running") {
-        Write-Host "  Starting existing cluster..." -ForegroundColor Gray
-        minikube start -p $clusterName
-        Write-Host "  Using cluster '$clusterName'" -ForegroundColor Green
-        Write-Host ""
-    }
-    else {
-        Write-Host "  Using running cluster '$clusterName'" -ForegroundColor Green
-        Write-Host ""
-    }
+    if (-not $status) { $SkipCluster = $false } # Doesn't exist, create it.
+    elseif ($status -ne "Running") { minikube start -p $clusterName } # Stopped, start it.
 }
 
 $clusterCreated = $false
 if (-not $SkipCluster) {
     Write-Host "[2/5] Creating Minikube cluster..." -ForegroundColor Yellow
     
-    # Check if cluster exists
+    # Delete if exists to ensuring fresh start
     $status = minikube status -p $clusterName --format "{{.Host}}" 2>$null
-    if ($status) {
-        Write-Host "  Deleting existing cluster..." -ForegroundColor Gray
-        minikube delete -p $clusterName
-    }
-    
-    Write-Host "  Creating cluster '$clusterName' with Podman driver..." -ForegroundColor Gray
-    # Using 'rootless' extra config to help with some podman networking issues if needed, but standard start usually fine
+    if ($status) { minikube delete -p $clusterName }
+
+    # START COMMAND:
+    # --driver=podman: Use Podman instead of Docker Desktop or VirtualBox.
+    # --container-runtime=containerd: Use standard k8s runtime.
+    # --ports: Map internal K8s ports to our laptop ports (optional, for direct access).
     minikube start -p $clusterName --driver=podman --container-runtime=containerd --ports=8080:80, 8443:443
     
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  ERROR: Failed to create Minikube cluster" -ForegroundColor Red
-        exit 1
-    }
-    
+    if ($LASTEXITCODE -ne 0) { Write-Host "  ERROR: Failed to create cluster" -ForegroundColor Red; exit 1 }
     $clusterCreated = $true
-    Write-Host "  Cluster created" -ForegroundColor Green
-    Write-Host ""
 }
 
-# Step 3: Build images (In-Cluster)
-if ($SkipBuild -and -not $clusterCreated) {
-    Write-Host "[3/5] Skipping image build (-SkipBuild specified)..." -ForegroundColor Yellow
-    
-    # Verify existence of in-cluster images
-    Write-Host "  Verifying cached images..." -ForegroundColor Gray
-    $existingImages = minikube -p $clusterName image ls 2>$null
-    $imagesMissing = $false
-    
-    foreach ($img in $appImages) {
-        # Check matching tag (simple string match usually sufficient for latest)
-        if ($existingImages -notmatch "$($img.Name):latest") {
-            Write-Host "  WARNING: Image '$($img.Name)' not found in cluster!" -ForegroundColor Yellow
-            $imagesMissing = $true
-        }
-    }
-    
-    if ($imagesMissing) {
-        Write-Host "  Forcing build to fix missing images..." -ForegroundColor Yellow
-        $SkipBuild = $false
-    }
-    else {
-        Write-Host "  All images found." -ForegroundColor Green
-    }
-}
-elseif ($SkipBuild -and $clusterCreated) {
-    Write-Host "[3/5] Force enabling build (New cluster created, images are missing)..." -ForegroundColor Yellow
-    $SkipBuild = $false
-}
+# =================================================================================================
+# STEP 3: Build Images (In-Cluster)
+# =================================================================================================
+# Minikube is unique: You can point your shell to Minikube's Docker daemon.
+# But since we use Podman driver, we use 'minikube image build'.
+# This builds the image DIRECTLY INSIDE the cluster. No need to push/pull!
 
 if (-not $SkipBuild) {
     Write-Host "[3/5] Building images (In-Cluster)..." -ForegroundColor Yellow
-    Write-Host "  This uses the Minikube docker daemon directly. No local save/load needed." -ForegroundColor Gray
-    Write-Host ""
-
+    
     foreach ($img in $appImages) {
         Write-Host "  Building $($img.Name)..." -ForegroundColor Gray
-        
-        # Use minikube image build
-        # Note: -f is relative to context root. Since context is $img.BuildPath and Dockerfile is at root of it, 
-        # we can omit -f (defaults to Dockerfile) or use -f Dockerfile.
+        # COMMAND: minikube image build
+        # This is strictly for the Minikube environment.
         minikube -p $clusterName image build -t "$($img.Name):latest" $img.BuildPath
-        
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  ERROR: Failed to build $($img.Name)" -ForegroundColor Red
-            exit 1
-        }
     }
-    Write-Host "  All images built in-cluster" -ForegroundColor Green
-    Write-Host ""
 }
 
-# Step 4: Enable ingress addon
+# =================================================================================================
+# STEP 4: Enable Ingress
+# =================================================================================================
 Write-Host "[4/5] Enabling ingress addon..." -ForegroundColor Yellow
 
+# Minikube has "Addons". These are one-click installs for common features.
+# This installs Nginx Ingress Controller automatically.
 minikube -p $clusterName addons enable ingress
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "  WARNING: Failed to enable ingress addon" -ForegroundColor Yellow
-}
-else {
-    Write-Host "  Ingress addon enabled" -ForegroundColor Green
-}
 
-# Wait for ingress controller
+# Wait for it to be ready
 Write-Host "  Waiting for ingress controller..." -ForegroundColor Gray
 kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=120s 2>$null
 
-Write-Host ""
-
-# Step 5: Deploy application
+# =================================================================================================
+# STEP 5: Deploy Application
+# =================================================================================================
 Write-Host "[5/5] Deploying application..." -ForegroundColor Yellow
-Write-Host ""
 
 $manifestsDir = "k8s-manifests"
 $tempDir = Join-Path $cacheDir "manifests"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
-# Deploy namespace
-Write-Host "  Deploying namespace..." -ForegroundColor Gray
+# Namespace
 kubectl apply -f (Join-Path $manifestsDir "namespace.yml")
 
-# Deploy resources
 $deployOrder = @("database.yml", "auth-api.yml", "tasks-api.yml", "frontend.yml")
-
 foreach ($file in $deployOrder) {
     $sourcePath = Join-Path $manifestsDir $file
     $tempPath = Join-Path $tempDir $file
-
     $content = Get-Content $sourcePath -Raw
-    # Replace default GCR images with simple tag names (minikube uses local registry by default for these)
-    # Important: Set PullPolicy to Never to force using the built image
+    
+    # MODIFICATION:
+    # We use simple tag names: 'auth-api:latest'.
+    # Because we built them "In-Cluster", Minikube knows them by this short name.
     $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/auth-api:latest', 'auth-api:latest'
     $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/tasks-api:latest', 'tasks-api:latest'
     $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/frontend:latest', 'frontend:latest'
+    
+    # CRITICAL: 'imagePullPolicy: Never'
+    # "Don't try to pull 'auth-api:latest' from Docker Hub. Use the local one."
     $content = $content -replace 'imagePullPolicy: Always', 'imagePullPolicy: Never'
+    
     $content | Set-Content $tempPath -NoNewline
-
-    Write-Host "  Deploying $file..." -ForegroundColor Gray
     kubectl apply -f $tempPath
-
+    
     if ($file -eq "database.yml") {
-        Write-Host "  Waiting for database..." -ForegroundColor Gray
+        # Wait for DB
         kubectl wait --namespace task-app --for=condition=ready pod --selector=app=db --timeout=120s 2>$null
     }
 }
 
-# Deploy ingress (convert gce to nginx)
+# Ingress
 Write-Host "  Deploying ingress..." -ForegroundColor Gray
 $ingressContent = Get-Content (Join-Path $manifestsDir "ingress.yml") -Raw
+
+# Minikube's ingress addon uses 'nginx' class.
 $ingressContent = $ingressContent -replace 'kubernetes.io/ingress.class: "gce"', 'kubernetes.io/ingress.class: "nginx"'
 $ingressContent = $ingressContent -replace 'ingressClassName: gce', 'ingressClassName: nginx'
+
 $ingressTempPath = Join-Path $tempDir "ingress.yml"
 $ingressContent | Set-Content $ingressTempPath -NoNewline
 
-$retries = 0
-$ingressDeployed = $false
+# Retry loop
+$retries = 0; $ingressDeployed = $false
 while ($retries -lt 12 -and -not $ingressDeployed) {
     kubectl apply -f $ingressTempPath 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        
-        # Verify ingress was actually created
-        Start-Sleep -Seconds 2
-        $ingressExists = kubectl get ingress -n task-app task-app-ingress -o name 2>$null
-        if ($ingressExists) {
-            $ingressDeployed = $true
-            Write-Host "  Ingress deployed and verified" -ForegroundColor Green
-        }
-    }
-    if (-not $ingressDeployed) {
-        $retries++
-        Start-Sleep -Seconds 5
-    }
+    if ($LASTEXITCODE -eq 0) { $ingressDeployed = $true }
+    else { Start-Sleep -Seconds 5; $retries++ }
 }
 
-# Cleanup
-Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
-
-Write-Host ""
-Write-Host "  Waiting for pods..." -ForegroundColor Gray
-kubectl wait --namespace task-app --for=condition=ready pod --all --timeout=180s 2>$null
-
-Write-Host ""
-kubectl get pods -n task-app
-
-# Get Minikube IP for access
+# Get Minikube IP
 $minikubeIP = minikube -p $clusterName ip 2>$null
 
-Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Deployment Complete!" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
@@ -243,7 +176,3 @@ Write-Host "  1. Tunnel (recommended): minikube -p $clusterName tunnel" -Foregro
 Write-Host "     Then access: http://localhost" -ForegroundColor Green
 Write-Host ""
 Write-Host "  2. Direct IP: http://${minikubeIP}" -ForegroundColor White
-Write-Host ""
-Write-Host "Quick redeploy:  .\scripts\local-minikube-deploy.ps1 -SkipBuild -SkipCluster" -ForegroundColor White
-Write-Host "Tear down:       .\scripts\local-minikube-down.ps1" -ForegroundColor White
-Write-Host ""

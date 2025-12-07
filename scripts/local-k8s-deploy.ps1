@@ -1,10 +1,30 @@
 #!/usr/bin/env pwsh
-# Local Kubernetes Deployment with Podman
-# This script deploys the application using k8s-manifests with local modifications
-# It handles service name resolution by injecting pod IPs
+# =================================================================================================
+# SCRIPT: Local Kubernetes Deployment (Podman)
+# =================================================================================================
+# WELCOME STUDENTS!
+# This PowerShell script allows you to run your Kubernetes application LOCALLY on your laptop.
+# It simulates a Kubernetes environment using 'Podman', which is an alternative to Docker.
+#
+# CHALLENGE:
+# In a real cluster (GKE), we have DNS (e.g., http://auth-api resolves automatically).
+# In Podman's basic "kube play" mode, we don't have a full DNS server.
+#
+# SOLUTION:
+# This script does some "Magic" to fix this:
+# 1. It deploys the Database first and finds its IP address.
+# 2. It injects that IP address into the configurations of the other services.
+# 3. It edits the Manifests on-the-fly to remove cloud-specific settings (like GCP Identity).
+#
+# USAGE:
+#   .\scripts\local-k8s-deploy.ps1             # Build images and deploy
+#   .\scripts\local-k8s-deploy.ps1 -SkipBuild  # Deploy existing images (faster)
+# =================================================================================================
 
+# 'param' defines the command-line arguments this script accepts.
 param(
-    [switch]$SkipBuild  # Skip building images if they already exist
+    # [switch] means it's a boolean flag. PASS: -SkipBuild. DEFAULT: False.
+    [switch]$SkipBuild
 )
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -12,16 +32,18 @@ Write-Host "Local K8s Deployment with Podman" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Step 1: Build local images (unless -SkipBuild is specified)
+# =================================================================================================
+# STEP 1: Build Container Images
+# =================================================================================================
+# Before we can run containers, we must build them from our source code.
+# This loop goes through each folder (auth-api, tasks-api, frontend) and runs 'podman build'.
 if ($SkipBuild) {
     Write-Host "[1/6] Skipping image build (-SkipBuild specified)..." -ForegroundColor Yellow
-    Write-Host "  Using existing images: auth-api:latest, tasks-api:latest, frontend:latest" -ForegroundColor Gray
-    Write-Host ""
 }
 else {
     Write-Host "[1/6] Building local images..." -ForegroundColor Yellow
-    Write-Host ""
-
+    
+    # Array of HashTables defining our services
     $images = @(
         @{Name = "auth-api"; Path = "./auth-api" },
         @{Name = "tasks-api"; Path = "./tasks-api" },
@@ -30,43 +52,47 @@ else {
 
     foreach ($img in $images) {
         Write-Host "  Building $($img.Name)..." -ForegroundColor Gray
+        
+        # podman build -t Name:Tag -f Dockerfile Path
         podman build -t "$($img.Name):latest" -f "$($img.Path)/Dockerfile" $img.Path
+        
+        # Check for errors ($LASTEXITCODE is 0 if success, non-zero if error)
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  ERROR: Failed to build $($img.Name)" -ForegroundColor Red
-            exit 1
+            exit 1 # Stop the script immediately
         }
     }
-
-    Write-Host "  All images built successfully" -ForegroundColor Green
-    Write-Host ""
 }
 
-# Step 2: Process and deploy manifests
+# =================================================================================================
+# STEP 2: Setup Workspace
+# =================================================================================================
 Write-Host "[2/6] Processing k8s manifests for local deployment..." -ForegroundColor Yellow
-Write-Host ""
 
 $manifestsDir = "k8s-manifests"
+# We create a temporary hidden folder to store our modified YAML files.
+# We don't want to modify the REAL files in 'k8s-manifests/' because those are for Production!
 $tempDir = "scripts/.tmp-manifests"
 
-# Create temp directory
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
-# Files to skip (not supported by Podman)
-$skipFiles = @("namespace.yml", "ingress.yml")
-
-# Helper function to get pod IP
+# HELPER FUNCTION: Get-PodIP
+# Gets the internal IP address of a running Podman container.
+# We need this because we don't have a DNS server.
 function Get-PodIP {
     param([string]$PodName)
+    # 1. Get the ID of the "Infra Container" (the network holder for the pod)
     $infraId = podman pod inspect $PodName --format "{{.InfraContainerID}}" 2>$null
     if ($infraId) {
-        # Podman kube network uses a different network name
+        # 2. Inspect that container to find its IP address
         $ip = podman inspect $infraId --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" 2>$null
         return $ip.Trim()
     }
     return $null
 }
 
-# Helper function to wait for pod to be ready
+# HELPER FUNCTION: Wait-ForPod
+# Loops until a pod status becomes "Running".
 function Wait-ForPod {
     param([string]$PodName, [int]$TimeoutSeconds = 60)
     $elapsed = 0
@@ -81,159 +107,132 @@ function Wait-ForPod {
     return $false
 }
 
-# Step 3: Deploy database first to get its IP
+# =================================================================================================
+# STEP 3: Deploy Database
+# =================================================================================================
+# We deploy the DB first because the APIs need its IP address to connect.
 Write-Host "[3/6] Deploying database..." -ForegroundColor Yellow
-Write-Host ""
 
 $dbSourcePath = Join-Path $manifestsDir "database.yml"
 $dbTempPath = Join-Path $tempDir "database.yml"
 
-# Process database manifest
+# Read the Manifest
 $dbContent = Get-Content $dbSourcePath -Raw
+
+# MODIFICATION: Remove 'namespace: task-app'
+# Podman 'kube play' doesn't support Namespaces well in local mode.
+# regex: (?m) enables multiline mode. ^ start of line. \r? windows comaptibility.
 $dbContent = $dbContent -replace '(?m)^  namespace: task-app\r?\n', ''
+
+# Save modified file
 $dbContent | Set-Content $dbTempPath -NoNewline
 
+# Deploy!
 Write-Host "  Deploying database.yml..." -ForegroundColor Gray
 podman kube play $dbTempPath
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "  ERROR: Failed to deploy database" -ForegroundColor Red
-    Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
-    exit 1
-}
 
-# Wait for database pod to be ready
+# Wait for it to be ready
 Write-Host "  Waiting for database pod..." -ForegroundColor Gray
 if (-not (Wait-ForPod -PodName "db-pod" -TimeoutSeconds 60)) {
     Write-Host "  ERROR: Database pod did not start in time" -ForegroundColor Red
     exit 1
 }
 
-# Get database pod IP
+# Find its IP
 $dbIP = Get-PodIP -PodName "db-pod"
-if (-not $dbIP) {
-    Write-Host "  ERROR: Could not get database pod IP" -ForegroundColor Red
-    exit 1
-}
 Write-Host "  Database pod IP: $dbIP" -ForegroundColor Green
-Write-Host ""
 
-# Step 4: Deploy auth-api and tasks-api with correct DB_HOST
+# =================================================================================================
+# STEP 4: Deploy APIs (Auth & Tasks)
+# =================================================================================================
 Write-Host "[4/6] Deploying API services..." -ForegroundColor Yellow
-Write-Host ""
 
 $apiFiles = @("auth-api.yml", "tasks-api.yml")
 foreach ($file in $apiFiles) {
     $sourcePath = Join-Path $manifestsDir $file
     $tempPath = Join-Path $tempDir $file
-
-    Write-Host "  Processing $file..." -ForegroundColor Gray
-
+    
     $content = Get-Content $sourcePath -Raw
 
-    # Replace GCR image paths with local tags
+    # MODIFICATION 1: Change Image Path
+    # Cloud: us-central1-docker.pkg.dev/...
+    # Local: localhost/auth-api:latest
     $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/auth-api:latest', 'localhost/auth-api:latest'
     $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/tasks-api:latest', 'localhost/tasks-api:latest'
 
-    # Change imagePullPolicy to Never
+    # MODIFICATION 2: Image Pull Policy
+    # Cloud: Always (Check for updates)
+    # Local: Never (Use the image I just built on my machine)
     $content = $content -replace 'imagePullPolicy: Always', 'imagePullPolicy: Never'
 
-    # Replace DB_HOST: db with actual IP
+    # MODIFICATION 3: Inject DB IP
+    # The manifests say "DB_HOST: db". We verify that doesn't work locally.
+    # We replace it with the actual IP: "DB_HOST: 10.88.0.2"
     $content = $content -replace 'DB_HOST: db', "DB_HOST: $dbIP"
 
-    # Remove namespace references
+    # Remove namespace
     $content = $content -replace '(?m)^  namespace: task-app\r?\n', ''
 
     $content | Set-Content $tempPath -NoNewline
-
-    Write-Host "  Deploying $file..." -ForegroundColor Gray
     podman kube play $tempPath
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  ERROR: Failed to deploy $file" -ForegroundColor Red
-        Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
-        exit 1
-    }
 }
 
-# Wait for API pods to be ready
-Write-Host "  Waiting for API pods..." -ForegroundColor Gray
-Wait-ForPod -PodName "auth-api-pod" -TimeoutSeconds 60 | Out-Null
-Wait-ForPod -PodName "tasks-api-pod" -TimeoutSeconds 60 | Out-Null
+# Wait for APIs
+Wait-ForPod -PodName "auth-api-pod" | Out-Null
+Wait-ForPod -PodName "tasks-api-pod" | Out-Null
 
-# Get API pod IPs
 $authApiIP = Get-PodIP -PodName "auth-api-pod"
 $tasksApiIP = Get-PodIP -PodName "tasks-api-pod"
 
-if (-not $authApiIP -or -not $tasksApiIP) {
-    Write-Host "  ERROR: Could not get API pod IPs" -ForegroundColor Red
-    exit 1
-}
-
 Write-Host "  Auth API pod IP: $authApiIP" -ForegroundColor Green
 Write-Host "  Tasks API pod IP: $tasksApiIP" -ForegroundColor Green
-Write-Host ""
 
-# Step 5: Deploy frontend with correct API URLs
+# =================================================================================================
+# STEP 5: Deploy Frontend
+# =================================================================================================
 Write-Host "[5/6] Deploying frontend..." -ForegroundColor Yellow
-Write-Host ""
 
 $frontendSourcePath = Join-Path $manifestsDir "frontend.yml"
 $frontendTempPath = Join-Path $tempDir "frontend.yml"
-
 $frontendContent = Get-Content $frontendSourcePath -Raw
 
-# Replace GCR image path with local tag
+# Standard modifications (Image path, Pull Policy, Namespace)
 $frontendContent = $frontendContent -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/frontend:latest', 'localhost/frontend:latest'
-
-# Change imagePullPolicy to Never
 $frontendContent = $frontendContent -replace 'imagePullPolicy: Always', 'imagePullPolicy: Never'
+$frontendContent = $frontendContent -replace '(?m)^  namespace: task-app\r?\n', ''
 
-# Replace service URLs with pod IPs
+# SPECIAL MODIFICATION: Service Discovery
+# The frontend (Nginx) needs to proxy requests to the APIs.
+# We inject the IP addresses we found earlier.
 $frontendContent = $frontendContent -replace 'http://auth-api:8000/', "http://${authApiIP}:8000/"
 $frontendContent = $frontendContent -replace 'http://tasks-api:8000/', "http://${tasksApiIP}:8000/"
 
-# Change Service type to LoadBalancer
+# SPECIAL MODIFICATION: Expose Port
+# In Cloud, 'ClusterIP' is fine because Ingress handles external traffic.
+# Locally, we change it to 'LoadBalancer' or just rely on 'podman kube play --publish'.
+# Here we change the type just in case.
 $frontendContent = $frontendContent -replace 'type: ClusterIP', 'type: LoadBalancer'
-
-# Remove namespace references
-$frontendContent = $frontendContent -replace '(?m)^  namespace: task-app\r?\n', ''
 
 $frontendContent | Set-Content $frontendTempPath -NoNewline
 
-Write-Host "  Deploying frontend.yml..." -ForegroundColor Gray
+# --publish 8080:80 maps localhost:8080 -> Container Port 80
 podman kube play --publish 8080:80 $frontendTempPath
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "  ERROR: Failed to deploy frontend" -ForegroundColor Red
-    Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
-    exit 1
-}
 
 Write-Host "  Frontend deployed" -ForegroundColor Green
-Write-Host ""
 
-# Step 6: Cleanup and display status
+# =================================================================================================
+# STEP 6: Cleanup
+# =================================================================================================
+# We delete the temporary modified files so we don't clutter the disk.
 Write-Host "[6/6] Cleaning up temporary files..." -ForegroundColor Yellow
 Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
-Write-Host "  Cleanup complete" -ForegroundColor Green
-Write-Host ""
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Deployment Complete!" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Pod IPs:" -ForegroundColor Gray
-Write-Host "  Database:   $dbIP" -ForegroundColor White
-Write-Host "  Auth API:   $authApiIP" -ForegroundColor White
-Write-Host "  Tasks API:  $tasksApiIP" -ForegroundColor White
-Write-Host ""
 Write-Host "Frontend URL: " -NoNewline
 Write-Host "http://localhost:8080" -ForegroundColor Green
 Write-Host ""
-Write-Host "To view running pods:" -ForegroundColor Gray
-Write-Host "  podman pod ps" -ForegroundColor White
-Write-Host ""
-Write-Host "To view logs:" -ForegroundColor Gray
-Write-Host "  podman logs -f <container-name>" -ForegroundColor White
-Write-Host ""
 Write-Host "To tear down deployment:" -ForegroundColor Gray
 Write-Host "  .\scripts\local-k8s-down.ps1" -ForegroundColor White
-Write-Host ""

@@ -1,9 +1,14 @@
 #!/usr/bin/env pwsh
-# Tear down Minikube cluster deployment
+# =================================================================================================
+# SCRIPT: Teardown Minikube
+# =================================================================================================
+# WELCOME STUDENTS!
+# This cleans up the Minikube cluster.
+# =================================================================================================
 
 param(
-    [switch]$KeepCluster,  # Keep the cluster, only delete the namespace
-    [switch]$SkipCluster   # Alias for KeepCluster (Skip cluster deletion)
+    [switch]$KeepCluster,  # Keep the VM running
+    [switch]$SkipCluster   # Alias for KeepCluster
 )
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -15,18 +20,20 @@ $clusterName = "task-app"
 
 if ($KeepCluster -or $SkipCluster) {
     Write-Host "Deleting task-app namespace (keeping cluster)..." -ForegroundColor Yellow
+    
+    # Just delete the namespace. The VM stays running.
+    # Next deployment will be very fast.
     kubectl delete namespace task-app --ignore-not-found
     
-    Write-Host ""
     Write-Host "Namespace deleted. Cluster '$clusterName' still running." -ForegroundColor Green
-    Write-Host ""
-    Write-Host "To redeploy: .\scripts\local-minikube-deploy.ps1 -SkipCluster" -ForegroundColor White
 }
 else {
     Write-Host "Deleting Minikube cluster '$clusterName'..." -ForegroundColor Yellow
     
+    # Check if it exists before trying to delete
     $status = minikube status -p $clusterName --format "{{.Host}}" 2>$null
     if ($status) {
+        # This deletes the VM/Container entirely. Frees up RAM/CPU.
         minikube delete -p $clusterName
         Write-Host "Cluster deleted." -ForegroundColor Green
     }
@@ -35,11 +42,8 @@ else {
     }
 }
 
-# Cleanup temp files
 Remove-Item -Recurse -Force "scripts/.tmp-minikube-manifests" -ErrorAction SilentlyContinue
 
-Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Teardown Complete!" -ForegroundColor Cyan
+Write-Host "Teardown Complete!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""

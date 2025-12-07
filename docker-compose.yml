@@ -1,44 +1,105 @@
-version: '3.8'
+# =================================================================================================
+# DOCKER COMPOSE: Local Development Environment
+# =================================================================================================
+# WELCOME STUDENTS!
+# "Docker Compose" is a tool for defining and running multi-container Docker applications.
+# Instead of running 'docker run ...' four times, you run 'docker-compose up' ONCE.
+#
+# CONCEPTS:
+# 1. Services: The containers that make up our app (DB, Auth, Tasks, Frontend).
+# 2. Build: Instructions to build the image from source code (Dockerfile).
+# 3. Environment: Injecting configuration (passwords, URLs) into the container.
+# 4. Volumes: Mounting your code from Windows/Mac into the Linux container (Hot Reload!).
+# 5. Networking: All services here can talk to each other by name (e.g., "ping db").
+# =================================================================================================
+
+version: '3.8'  # The version of the docker-compose syntax. '3.8' is standard.
 
 services:
-  # Service 4: Base de Données PostgreSQL
+
+  # ===============================================================================================
+  # SERVICE 1: Database (PostgreSQL)
+  # ===============================================================================================
   db:
+    # IMAGE: We don't build this ourselves. We use the official image from Docker Hub.
     image: postgres:15-alpine
+    
+    # CONTAINER_NAME: Gives it a predictable name.
+    # Useful if you want to run 'docker exec -it tasks_db bash' to enter the database manually.
     container_name: tasks_db
+    
+    # ENVIRONMENT:
+    # ${VARIABLE:-default} syntax means:
+    # "Use the env var from my computer if it exists; otherwise use 'default'".
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
       POSTGRES_DB: ${DB_NAME:-tasksdb}
+    
+    # PORTS:
+    # "5432:5432" maps your computer's port 5432 to the container's port 5432.
+    # This lets you connect to the DB using a tool like DBeaver or PgAdmin on your Windows/Mac.
     ports:
-      - "5432:5432" # Expose sur l'hôte pour débugger (optionnel)
+      - "5432:5432"
+    
+    # VOLUMES (Persistence):
+    # 'postgres_data' is a "Named Volume" managed by Docker.
+    # It survives even if you delete the container. This keeps your data safe!
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    
+    # HEALTHCHECK:
+    # Tells Docker how to check if the DB is actually ready.
+    # Other services can wait for this "health" status before starting.
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Service 1: API d'Authentification
+  # ===============================================================================================
+  # SERVICE 2: Auth API
+  # ===============================================================================================
   auth-api:
+    # BUILD:
+    # Instead of an image, we tell Docker how to build it from our code.
+    # 'context': The folder where the source code is.
+    # 'dockerfile': The specific file to use (we use a dev version that has tooling installed).
     build:
       context: ./auth-api
       dockerfile: Dockerfile.dev
     container_name: auth-api
+    
     environment:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-un_secret_tres_fort_a_changer}
       - DB_USER=${DB_USER:-postgres}
       - DB_PASSWORD=${DB_PASSWORD:-password}
+      # IMPORTANT: 'db' is the NAME of the service above. Docker DNS resolves this magically.
       - DB_HOST=db
       - DB_NAME=${DB_NAME:-tasksdb}
+    
+    # PORTS:
+    # Maps computer's 8001 -> Container's 8000.
+    # We use 8001 because we might want to run multiple things, or just to differentiate.
     ports:
-      - "8001:8000" # Hôte:Conteneur
+      - "8001:8000"
+    
+    # VOLUMES (Hot Reload):
+    # This mimics a "Symlink".
+    # ./auth-api (Outside) <---> /app (Inside)
+    # If you change a python file in VS Code, it instantly changes inside the container.
+    # The 'Dockerfile.dev' usually runs uvicorn with '--reload' to restart the server automatically.
     volumes:
-      - ./auth-api:/app # Monte le code local pour le développement
+      - ./auth-api:/app
+    
+    # DEPENDS_ON:
+    # Docker will start 'db' first.
     depends_on:
-      - db # Ne démarre pas avant que la DB soit (théoriquement) prête
+      - db
 
-  # Service 2: API de Tâches
+  # ===============================================================================================
+  # SERVICE 3: Tasks API
+  # ===============================================================================================
   tasks-api:
     build:
       context: ./tasks-api
@@ -47,35 +108,43 @@ services:
     environment:
       - DB_USER=${DB_USER:-postgres}
       - DB_PASSWORD=${DB_PASSWORD:-password}
-      - DB_HOST=db # Important: utilise le nom du service 'db'
+      - DB_HOST=db
       - DB_NAME=${DB_NAME:-tasksdb}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-un_secret_tres_fort_a_changer}
     ports:
-      - "8002:8000" # Hôte:Conteneur
+      - "8002:8000"
     volumes:
-      - ./tasks-api:/app # Monte le code local pour le développement
+      - ./tasks-api:/app
     depends_on:
+      # Advanced Syntax: Wait not just for container start, but for HEALTHY status.
+      # This prevents the API from crashing because the DB wasn't ready to accept connections yet.
       db:
-        condition: service_healthy # Attend que le healthcheck de la DB passe
+        condition: service_healthy
 
-  # Service 3: Frontend (Nginx)
+  # ===============================================================================================
+  # SERVICE 4: Frontend (Nginx)
+  # ===============================================================================================
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
     container_name: frontend-web
     environment:
+      # The frontend container is running inside Docker network.
+      # It needs to talk to the APIs.
+      # Since we are INSIDE the Docker network, we use the service updates: 'http://auth-api:8000/'.
       - AUTH_API_URL=http://auth-api:8000/
       - TASKS_API_URL=http://tasks-api:8000/
       - PORT=80
     ports:
-      - "8080:80" # Notre app est accessible sur http://localhost:8080
+      # This is the Main Entrypoint.
+      # Visit http://localhost:8080 in your browser.
+      - "8080:80"
     depends_on:
       - auth-api
       - tasks-api
 
-# Définition du volume nommé pour la persistance
+# DEFINITIONS:
 volumes:
   postgres_data:
-    # Si 'driver: local' n'est pas spécifié, c'est le défaut.
-    # Les données seront stockées dans un volume géré par Docker.
+    # Empty block means "Use default local driver".

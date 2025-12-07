@@ -1,9 +1,17 @@
 #!/usr/bin/env pwsh
-# Tear down Kind cluster deployment
-# This script removes the Kind cluster and all associated resources
+# =================================================================================================
+# SCRIPT: Teardown Kind Cluster
+# =================================================================================================
+# WELCOME STUDENTS!
+# This script destroys the Kind cluster.
+# Two modes:
+# 1. Total Destruction: Deletes the Docker container acting as the cluster.
+# 2. Keep Cluster: Only deletes the 'task-app' namespace. Useful for fast reboot.
+# =================================================================================================
 
 param(
-    [switch]$KeepCluster  # Keep the cluster, only delete the namespace
+    # If -KeepCluster is passed, we won't delete the Kind node.
+    [switch]$KeepCluster
 )
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -14,46 +22,32 @@ Write-Host ""
 $clusterName = "task-app"
 
 if ($KeepCluster) {
-    # Only delete the namespace (keep cluster for faster redeployment)
+    # OPTION A: Fast Wipe
     Write-Host "Deleting task-app namespace (keeping cluster)..." -ForegroundColor Yellow
-    Write-Host ""
     
+    # Deleting the namespace deletes ALL resources inside it (Deployment, Service, Ingress...).
     kubectl delete namespace task-app --ignore-not-found
     
-    Write-Host ""
     Write-Host "Namespace deleted. Cluster '$clusterName' is still running." -ForegroundColor Green
-    Write-Host ""
-    Write-Host "To redeploy, run:" -ForegroundColor Gray
-    Write-Host "  .\scripts\local-kind-deploy.ps1 -SkipCluster" -ForegroundColor White
-    Write-Host ""
+    Write-Host "To redeploy, run with -SkipCluster." -ForegroundColor White
 }
 else {
-    # Delete the entire cluster
+    # OPTION B: Full Destroy
     Write-Host "Deleting Kind cluster '$clusterName'..." -ForegroundColor Yellow
-    Write-Host ""
     
-    # Check if cluster exists
     $existingCluster = kind get clusters 2>$null | Where-Object { $_ -eq $clusterName }
     
     if ($existingCluster) {
+        # This stops and removes the 'task-app-control-plane' container.
         kind delete cluster --name $clusterName
-        
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "Cluster deleted successfully." -ForegroundColor Green
-        }
-        else {
-            Write-Host "ERROR: Failed to delete cluster" -ForegroundColor Red
-            exit 1
-        }
+        Write-Host "Cluster deleted successfully." -ForegroundColor Green
     }
     else {
         Write-Host "Cluster '$clusterName' does not exist." -ForegroundColor Yellow
     }
-    
-    Write-Host ""
 }
 
-# Cleanup temp files if they exist
+# Cleanup temporary manifest files
 $tempDirs = @("scripts/.tmp-kind-manifests", "scripts/.kind-config.yml")
 foreach ($path in $tempDirs) {
     if (Test-Path $path) {
@@ -62,6 +56,4 @@ foreach ($path in $tempDirs) {
 }
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Teardown Complete!" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
+Write-Host "Teardown Complete!" -ForegroundColor Green

@@ -1,12 +1,32 @@
+# =================================================================================================
+# GITHUB ACTIONS WORKFLOW: Deploy to GKE (Kubernetes)
+# =================================================================================================
+# WELCOME STUDENTS!
+# This workflow deploys the application to "Google Kubernetes Engine" (GKE).
+#
+# WHAT IS KUBERNETES AND GKE?
+# - Kubernetes (K8s) is an "Orchestrator". It manages hundreds of containers across many servers.
+# - GKE is Google's managed version of Kubernetes.
+#
+# HOW DOES THIS WORK?
+# unlike Cloud Run where we just say "deploy this image", Kubernetes requires "Manifests" (YAML files).
+# These files describe *Infrastructure as Code*:
+# - Deployments: "Run 3 copies of this container"
+# - Services: "Give these containers a network IP"
+# - Ingress: "Route traffic from the internet to this Service"
+#
+# This workflow applies those manifests to the cluster.
+# =================================================================================================
+
 name: Deploy to GKE
 
 on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: 'Image tag to deploy (default: latest)'
+        description: "Image tag to deploy (default: latest)"
         required: false
-        default: 'latest'
+        default: "latest"
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -32,10 +52,15 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
+      # Kubernetes Auth Plugin
+      # GKE requires a special plugin to authenticate 'kubectl' commands using your Google credentials.
       - name: Install gke-gcloud-auth-plugin
         run: |
           gcloud components install gke-gcloud-auth-plugin
 
+      # Connect to the Cluster
+      # This command generates a 'kubeconfig' file.
+      # It tells 'kubectl' where your cluster is and how to talk to it.
       - name: Configure kubectl
         run: |
           gcloud container clusters get-credentials ${{ env.GKE_CLUSTER }} \
@@ -48,30 +73,43 @@ jobs:
           kubectl get nodes
 
       # --- Create/Update Namespace ---
+      # Namespaces are like virtual folders to organize your resources.
       - name: Apply Namespace
         run: |
           kubectl apply -f k8s-manifests/namespace.yml
 
       # --- Update Image References ---
+      # CHALLENGE: Our YAML files in 'k8s-manifests/' contain placeholders like 'PROJECT_ID' or ':latest'.
+      # BUT: We might want to deploy version ':v1.0.2'.
+      # SOLUTION: We use 'sed' (Stream Editor) to dynamically replace text in the files before applying them.
       - name: Update Image References
         run: |
           IMAGE_TAG="${{ github.event.inputs.image_tag }}"
-          
+
+          # Replace 'PROJECT_ID' with the actual ID from secrets.
+          # s|Find|Replace|g
+
           # Update auth-api image
           sed -i "s|PROJECT_ID|${{ env.PROJECT_ID }}|g" k8s-manifests/auth-api.yml
           sed -i "s|:latest|:${IMAGE_TAG}|g" k8s-manifests/auth-api.yml
-          
+
           # Update tasks-api image
           sed -i "s|PROJECT_ID|${{ env.PROJECT_ID }}|g" k8s-manifests/tasks-api.yml
           sed -i "s|:latest|:${IMAGE_TAG}|g" k8s-manifests/tasks-api.yml
-          
+
           # Update frontend image
           sed -i "s|PROJECT_ID|${{ env.PROJECT_ID }}|g" k8s-manifests/frontend.yml
           sed -i "s|:latest|:${IMAGE_TAG}|g" k8s-manifests/frontend.yml
 
       # --- Create/Update Secrets ---
+      # NEVER store passwords in git!
+      # We take secrets from GitHub (${{ secrets.DB_PASSWORD }}) and create Kubernetes Secrets objects.
+      # The pods will read from these K8s Secrets.
       - name: Update Database Secrets
         run: |
+          # 'create secret generic' creates a dictionary of keys and values.
+          # '--dry-run=client -o yaml | kubectl apply -f -' is a pro-tip:
+          # It allows us to "update" the secret if it already exists (create usually fails if it exists).
           kubectl create secret generic db-credentials \
             --from-literal=POSTGRES_USER=postgres \
             --from-literal=POSTGRES_PASSWORD="${{ secrets.DB_PASSWORD }}" \
@@ -102,9 +140,12 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
 
       # --- Deploy Services ---
+      # We use 'kubectl apply -f filename.yml' to tell Kubernetes: "Make the cluster look like this file."
       - name: Deploy Database
         run: |
           kubectl apply -f k8s-manifests/database.yml
+          # Wait for it to be ready!
+          # If we deploy everything at once, the APIs might crash because the DB isn't ready.
           echo "Waiting for database to be ready..."
           kubectl wait --for=condition=available --timeout=300s \
             deployment/db --namespace=task-app || true
@@ -135,27 +176,31 @@ jobs:
           kubectl apply -f k8s-manifests/ingress.yml
 
       # --- Verify Deployment ---
+      # Debugging commands to show us what happened in the GitHub logs.
       - name: Get Deployment Status
         run: |
           echo "=== Pods ==="
           kubectl get pods --namespace=task-app
-          
+
           echo ""
           echo "=== Services ==="
           kubectl get services --namespace=task-app
-          
+
           echo ""
           echo "=== Ingress ==="
           kubectl get ingress --namespace=task-app
-          
+
           echo ""
           echo "=== Deployment Status ==="
           kubectl get deployments --namespace=task-app
 
+      # --- Wait for IP Address ---
+      # Loop until the Ingress Load Balancer gets a public IP.
       - name: Get Application URL
         run: |
           echo "Waiting for Ingress IP to be assigned..."
           for i in {1..30}; do
+            # We ask kubernetes for the IP address of the ingress.
             INGRESS_IP=$(kubectl get ingress task-app-ingress --namespace=task-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
             if [ -n "$INGRESS_IP" ]; then
               echo "✓ Application is available at: http://${INGRESS_IP}"
@@ -167,20 +212,22 @@ jobs:
           done
           echo "::warning::Ingress IP not assigned yet. Check status with: kubectl get ingress --namespace=task-app"
 
+      # --- Error Handling ---
+      # If anything failed ('failure()'), show the logs of the pods.
       - name: Show Logs on Failure
         if: failure()
         run: |
           echo "=== Auth API Logs ==="
           kubectl logs --tail=50 -l app=auth-api --namespace=task-app || true
-          
+
           echo ""
           echo "=== Tasks API Logs ==="
           kubectl logs --tail=50 -l app=tasks-api --namespace=task-app || true
-          
+
           echo ""
           echo "=== Database Logs ==="
           kubectl logs --tail=50 -l app=db --namespace=task-app || true
-          
+
           echo ""
           echo "=== Frontend Logs ==="
           kubectl logs --tail=50 -l app=frontend --namespace=task-app || true

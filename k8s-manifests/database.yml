@@ -1,37 +1,64 @@
+# =================================================================================================
+# KUBERNETES MANIFEST: Database (PostgreSQL)
+# =================================================================================================
+# WELCOME STUDENTS!
+# This file defines the Database infrastructure. It's complex because databases need "Storage".
+# In Docker, you lose files when a container restarts.
+# In Kubernetes, we use "PersistentVolumeClaims" (PVC) to save data forever.
+#
+# CONCEPTS TAUGHT HERE:
+# 1. PersistentVolumeClaim (PVC): Requesting hard drive space.
+# 2. Secret: Storing passwords safely.
+# 3. Deployment: Running the database software (PostgreSQL).
+# 4. Service: Giving the database a stable internal IP address.
+# =================================================================================================
+
+# --- PART 1: STORAGE REQUEST (PVC) ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-pvc
   namespace: task-app
 spec:
+  # 'accessModes' defines how the volume can be mounted.
+  # - ReadWriteOnce: Can be mounted by ONE node as read-write (Standard for databases).
+  # - ReadWriteMany: Can be mounted by MANY nodes (Good for shared web files).
   accessModes:
     - ReadWriteOnce
+
+  # 'resources.requests.storage': How much space do we need?
+  # GKE will automatically create a real Compute Engine Disk of this size.
   resources:
     requests:
       storage: 10Gi
-  # GKE will automatically provision a persistent disk
+
 ---
+# --- PART 2: SECRET (Passwords) ---
+# NEVER put real passwords in plain text here for production!
+# In our workflow, we replace 'changeme' using 'kubectl create secret ...' command line.
 apiVersion: v1
 kind: Secret
 metadata:
   name: db-credentials
   namespace: task-app
-type: Opaque
-stringData:
+type: Opaque # "Opaque" means arbitrary key-value data.
+stringData: # 'stringData' allows us to write plain text (Kubernetes helps base64 encode it for us).
   POSTGRES_USER: postgres
-  POSTGRES_PASSWORD: changeme  # This will be updated by the workflow
+  POSTGRES_PASSWORD: changeme # <--- workflow replaces this!
   POSTGRES_DB: tasksdb
+
 ---
+# --- PART 3: DEPLOYMENT (The Application) ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: db
   namespace: task-app
 spec:
-  replicas: 1
+  replicas: 1 # Databases usually run only 1 replica (Primary) to avoid data conflict issues.
   selector:
     matchLabels:
-      app: db
+      app: db # This Deployment manages any Pods with label "app: db"
   template:
     metadata:
       labels:
@@ -39,7 +66,12 @@ spec:
     spec:
       containers:
         - name: postgres
+          # Using a lightweight Alpine Linux version of Postgres 15
           image: postgres:15-alpine
+
+          # ENVIRONMENT VARIABLES
+          # Instead of 'value: "my-password"', we use 'valueFrom: secretKeyRef'.
+          # This tells Kubernetes: "Go look inside the secret 'db-credentials' for the value".
           env:
             - name: POSTGRES_USER
               valueFrom:
@@ -56,29 +88,44 @@ spec:
                 secretKeyRef:
                   name: db-credentials
                   key: POSTGRES_DB
+            # PGDATA: Tells Postgres where to write files INSIDE the container.
+            # We point this to the path where we mount our Persistent Volume.
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
+
           ports:
             - containerPort: 5432
               name: postgres
+
+          # VOLUME MOUNTS
+          # This connects the "Virtual Hard Drive" (PVC) to a folder inside the container.
           volumeMounts:
-            - name: postgres-storage
-              mountPath: /var/lib/postgresql/data
+            - name: postgres-storage # Matches the 'volumes' name below
+              mountPath: /var/lib/postgresql/data # Where it appears inside the container
+
+          # RESOURCES (Requests & Limits)
+          # Requests: "I need at least this much to start" (Scheduling).
+          # Limits: "Kill me if I use more than this" (Safety).
           resources:
             requests:
               memory: "256Mi"
-              cpu: "250m"
+              cpu: "250m" # 250m = 0.25 CPU Cores
             limits:
               memory: "512Mi"
-              cpu: "500m"
+              cpu: "500m" # 500m = 0.5 CPU Cores
+
+          # PROBES (Health Checks)
+          # "Are you valid?"
           livenessProbe:
             exec:
               command:
-                - pg_isready
+                - pg_isready # Postgres utility to check connection
                 - -U
                 - postgres
-            initialDelaySeconds: 30
-            periodSeconds: 10
+            initialDelaySeconds: 30 # Wait 30s before first check (let DB start up)
+            periodSeconds: 10 # Check every 10s
+
+          # "Are you ready to receive traffic?"
           readinessProbe:
             exec:
               command:
@@ -87,11 +134,16 @@ spec:
                 - postgres
             initialDelaySeconds: 5
             periodSeconds: 5
+
+      # VOLUMES
+      # Defines the storage volumes available to this Pod.
       volumes:
         - name: postgres-storage
           persistentVolumeClaim:
-            claimName: postgres-pvc
+            claimName: postgres-pvc # Links back to PART 1
+
 ---
+# --- PART 4: SERVICE (Network) ---
 apiVersion: v1
 kind: Service
 metadata:
@@ -99,9 +151,13 @@ metadata:
   namespace: task-app
 spec:
   selector:
-    app: db
+    app: db # Routes traffic to pods labeled "app: db"
   ports:
     - protocol: TCP
-      port: 5432
-      targetPort: 5432
+      port: 5432 # Port exposed to the cluster
+      targetPort: 5432 # Port the container is listening on
+
+  # Type: ClusterIP
+  # This gives the service an internal IP address reachable ONLY from inside the cluster.
+  # Perfect for databases (we don't want the internet to access our DB directly!).
   type: ClusterIP

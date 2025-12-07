@@ -1,51 +1,51 @@
-# Podman Kube Play YAML for the Task App (LOCAL DEVELOPMENT ONLY)
+# =================================================================================================
+# PODMAN KUBE PLAY: Local Kubernetes Simulation
+# =================================================================================================
+# WELCOME STUDENTS!
+# "Podman" is an alternative to Docker.
+# "Podman Kube Play" is a unique feature that lets you run "Kubernetes YAMLs" locally without
+# needing a full Kubernetes cluster (like Minikube or Kind).
 #
-# This file defines a SINGLE POD configuration for local testing with 'podman kube play'.
-# All containers run in the same pod and share the network namespace (can communicate via localhost).
+# CONCEPTS:
+# 1. The "Pod": In Kubernetes, a Pod is the smallest unit. It can hold ONE or MORE containers.
+#    Here, we put ALL our services (DB, APIs, Frontend) into a SINGLE POD.
 #
-# For Google Kubernetes Engine (GKE) deployment, see the k8s-manifests/ directory.
-# For Docker/Podman Compose deployment, see docker-compose.yml.
+# 2. Shared Network Namespace:
+#    Because they are in the same Pod, they share "localhost".
+#    The Auth API acts like it is on the same machine as the Database.
+#    So, DB_HOST becomes "localhost" (NOT "db" like in Docker Compose).
 #
-# === LOCAL DEVELOPMENT USAGE ===
-#
-# Before you can use this file, you need to build the container images for the services:
-#
-# podman build -t auth-api:latest -f auth-api/Dockerfile ./auth-api
-# podman build -t tasks-api:latest -f tasks-api/Dockerfile ./tasks-api
-# podman build -t frontend:latest -f frontend/Dockerfile ./frontend
-#
-# After building the images, you can deploy the application with:
-#
-# podman kube play podman-deployment.yml
-#
-# The application will be available at http://localhost:8080 
-# (On Windows WSL, use: wsl ip addr show eth0 | findstr "inet " to find the WSL IP)
-#
-# To stop and remove the pod:
-#
-# podman kube down podman-deployment.yml
-#
-# === GKE DEPLOYMENT ===
-#
-# For production deployment to Google Kubernetes Engine, use the manifests in k8s-manifests/
-# See k8s-manifests/README.md for deployment instructions.
-#
+# 3. Limitations:
+#    This is great for testing, but in production, you would split these into separate Pods
+#    so they can scale independently.
+# =================================================================================================
 
----
-# Persistent Volume Claim for PostgreSQL data
+# --- PART 1: STORAGE ---
+# Just like in standard Kubernetes, we define a PersistentVolumeClaim.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-pvc
 spec:
+  # accessModes: Defines how the volume can be mounted.
+  # Options:
+  #   - ReadWriteOnce (RWO): Mounted as read-write by a SINGLE node. (Standard for Block Storage like AWS EBS, GCE Disk).
+  #   - ReadWriteMany (RWX): Mounted as read-write by MANY nodes. (Required for NFS, shared filesystems).
+  #   - ReadOnlyMany (ROX): Mounted as read-only by MANY nodes.
   accessModes:
     - ReadWriteOnce
   resources:
+    # requests: Structure to specify how much storage you need.
     requests:
+      # storage: 1Gi = 1 Gibibyte (1024^3 bytes).
+      # Alternatives:
+      #   - 500Mi (Mebibytes) for small tests.
+      #   - 10Gi, 100Gi for production databases.
+      #   - 1Ti (Tebibyte) for massive datasets.
       storage: 1Gi
 
 ---
-# Single Pod containing all application containers
+# --- PART 2: THE POD ---
 apiVersion: v1
 kind: Pod
 metadata:
@@ -53,8 +53,9 @@ metadata:
   labels:
     app: task-app
 spec:
+  # List of containers running side-by-side in this Pod.
   containers:
-    # PostgreSQL Database
+    # 1. Database
     - name: postgres
       image: postgres:15-alpine
       env:
@@ -65,16 +66,38 @@ spec:
         - name: POSTGRES_DB
           value: "tasksdb"
       ports:
+        # containerPort: What the app listens on inside.
+        # hostPort: Maps it to your physical machine (so you can connect with DBeaver).
         - containerPort: 5432
           hostPort: 5432
+      # --- RESOURCE LIMITS (New Addition) ---
+      # Kubernetes/Podman assumes containers have INFINITE resources by default.
+      # If a container goes crazy (memory leak), it can crash your whole machine ("Noisy Neighbor").
+      # To prevent this, we set:
+      #   1. requests: The MINIMUM guaranteed (reserved) for the container.
+      #   2. limits:   The MAXIMUM allowed. If it exceeds memory, it gets killed (OOMKilled).
+      resources:
+        requests:
+          memory: "128Mi" # Guaranteed 128MB
+          cpu: "100m" # Guaranteed 10% of a CPU core
+        limits:
+          memory: "512Mi" # Max 512MB
+          cpu: "500m" # Max 50% of a CPU core
       volumeMounts:
         - name: postgres-storage
           mountPath: /var/lib/postgresql/data
 
-    # Authentication API
+    # 2. Authentication API
     - name: auth-api
+      # IMAGE NOTE:
+      # 'auth-api:latest' refers to the image you built locally using 'podman build ...'.
+      # NOT from a registry.
       image: auth-api:latest
+
+      # IMPORTANT: 'imagePullPolicy: Never'
+      # Tells Podman: "Don't try to download this from the internet. Use the one I built."
       imagePullPolicy: Never
+
       env:
         - name: JWT_SECRET_KEY
           value: "un_secret_tres_fort_a_changer"
@@ -82,49 +105,96 @@ spec:
           value: "postgres"
         - name: DB_PASSWORD
           value: "password"
+
+        # KEY NETWORK DIFFERENCE:
+        # Since we are in the same Pod, we share the network namespace.
+        # This means we can talk to the DB via 'localhost' because it's effectively "local" to us.
+        # In a normal K8s setup with separate Pods, this would be a Service DNS name (e.g., 'postgres-service').
         - name: DB_HOST
-          value: "localhost"  # Changed from 'db' to 'localhost' for single pod
+          value: "localhost"
+
         - name: DB_NAME
           value: "tasksdb"
+      resources:
+        # Lightweight Python API resources
+        requests:
+          memory: "64Mi"
+          cpu: "50m"
+        limits:
+          memory: "256Mi"
+          cpu: "250m"
       ports:
         - containerPort: 8000
           name: auth-api
 
-    # Tasks API
+    # 3. Tasks API
     - name: tasks-api
       image: tasks-api:latest
       imagePullPolicy: Never
-      command: ["/home/appuser/.local/bin/uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8001"]
+
+      # COMMAND OVERRIDE:
+      # We need to run on port 8001 because port 8000 is already taken by Auth API!
+      # Remember, they share the same "localhost". Two apps can't listen on the same port.
+      command:
+        [
+          "/home/appuser/.local/bin/uvicorn",
+          "app:app",
+          "--host",
+          "0.0.0.0",
+          "--port",
+          "8001",
+        ]
+
       env:
         - name: DB_USER
           value: "postgres"
         - name: DB_PASSWORD
           value: "password"
         - name: DB_HOST
-          value: "localhost"  # Changed from 'db' to 'localhost' for single pod
+          value: "localhost"
         - name: DB_NAME
           value: "tasksdb"
         - name: JWT_SECRET_KEY
           value: "un_secret_tres_fort_a_changer"
+      resources:
+        # Same lightweight limits for the Tasks API
+        requests:
+          memory: "64Mi"
+          cpu: "50m"
+        limits:
+          memory: "256Mi"
+          cpu: "250m"
       ports:
         - containerPort: 8001
           name: tasks-api
 
-    # Frontend (Nginx with reverse proxy)
+    # 4. Frontend
     - name: frontend
       image: frontend:latest
       imagePullPolicy: Never
       env:
+        # Pointing Nginx to localhost because the APIs are "right next door".
         - name: AUTH_API_URL
-          value: "http://localhost:8000/"  # Added trailing slash for proper proxy_pass
+          value: "http://localhost:8000/"
         - name: TASKS_API_URL
-          value: "http://localhost:8001/"  # Added trailing slash for proper proxy_pass
+          value: "http://localhost:8001/"
         - name: PORT
           value: "80"
+      resources:
+        # Nginx is very efficient, so it needs very few resources.
+        requests:
+          memory: "32Mi"
+          cpu: "10m"
+        limits:
+          memory: "128Mi"
+          cpu: "100m"
       ports:
+        # Map container's port 80 to host's port 8080.
+        # Visit http://localhost:8080.
         - containerPort: 80
-          hostPort: 8080  # Expose on host port 8080
+          hostPort: 8080
 
+  # Volume Definition
   volumes:
     - name: postgres-storage
       persistentVolumeClaim:

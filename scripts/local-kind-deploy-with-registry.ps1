@@ -1,6 +1,24 @@
 #!/usr/bin/env pwsh
 # Local Kubernetes Deployment with Kind and Local Registry
 # This script implements the "Local Registry" pattern for faster development cycles.
+# =================================================================================================
+# SCRIPT: Kind Deployment with Local Registry (Advanced)
+# =================================================================================================
+# WELCOME STUDENTS!
+# This is the "Pro Level" version of using Kind.
+#
+# PROBLEM WITH 'local-kind-deploy.ps1':
+# Loading images with 'kind load' (podman save -> copy -> podman load) is SLOW.
+#
+# SOLUTION: "Local Registry"
+# 1. We start a Docker Registry container on localhost:5001.
+# 2. We configure Kind to know about this registry.
+# 3. We 'docker push' to localhost:5001.
+# 4. Kind 'docker pulls' from localhost:5001.
+#
+# RESULT:
+# Massive speedup because we only push/pull changes (layers), not the whole OS every time.
+# =================================================================================================
 
 param(
     [switch]$SkipBuild,      # Skip building container images
@@ -66,6 +84,12 @@ else {
 }
 Write-Host ""
 
+# =================================================================================================
+# STEP 3: Network Connection
+# =================================================================================================
+# The Registry and the Cluster are two sibling containers.
+# By default, they can't talk to each other unless they are on the same Docker Network.
+# Kind creates a network called "kind". We put the registry on it.
 # Step 3: Create Kind Cluster with Registry Config
 if ($SkipCluster) {
     Write-Host "[3/8] Checking if cluster exists..." -ForegroundColor Yellow

@@ -1,3 +1,19 @@
+# =================================================================================================
+# KUBERNETES MANIFEST: Frontend (Nginx)
+# =================================================================================================
+# WELCOME STUDENTS!
+# This deploys the Static Website (HTML/JS/CSS) served by Nginx.
+#
+# KEY CONCEPTS:
+# 1. Environment Configuration:
+#    The Frontend runs in the browser, BUT Nginx acts as a "Reverse Proxy".
+#    We need to tell Nginx where the Backend APIs are.
+#
+#    Wait... Nginx is a text config file. How do we put Env Vars into it?
+#    We use a trick in the Dockerfile called 'envsubst'. It reads these valid
+#    environment variables (AUTH_API_URL) and writes them into nginx.conf at startup.
+# =================================================================================================
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,16 +33,24 @@ spec:
         - name: frontend
           image: us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/frontend:latest
           imagePullPolicy: Always
+
+          # ENVIRONMENT VARIABLES for Nginx
           env:
             - name: PORT
               value: "80"
+
+            # Service Discovery:
+            # We use the Service Names ("auth-api", "tasks-api") as hostnames.
+            # Kubernetes DNS resolves "http://auth-api" to the correct internal IP.
             - name: AUTH_API_URL
               value: "http://auth-api:8000/"
             - name: TASKS_API_URL
               value: "http://tasks-api:8000/"
+
           ports:
             - containerPort: 80
               name: http
+
           resources:
             requests:
               memory: "64Mi"
@@ -34,6 +58,7 @@ spec:
             limits:
               memory: "128Mi"
               cpu: "100m"
+
           livenessProbe:
             httpGet:
               path: /
@@ -46,6 +71,7 @@ spec:
               port: 80
             initialDelaySeconds: 5
             periodSeconds: 5
+
 ---
 apiVersion: v1
 kind: Service
@@ -59,4 +85,8 @@ spec:
     - protocol: TCP
       port: 80
       targetPort: 80
+
+  # Type: ClusterIP (Default)
+  # This service is still internal!
+  # To expose it to the internet, we use the "Ingress" (see ingress.yml).
   type: ClusterIP

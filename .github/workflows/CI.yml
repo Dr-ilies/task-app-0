@@ -1,29 +1,94 @@
+# =================================================================================================
+# GITHUB ACTIONS WORKFLOW: CI (Continuous Integration)
+# =================================================================================================
+# WELCOME STUDENTS!
+# This file defines a "Workflow" for GitHub Actions.
+# Think of a workflow as a robotic automation script that runs whenever something happens in your repository.
+#
+# WHAT DOES THIS WORKFLOW DO?
+# 1. It watches for changes (pushes) to the 'main' branch.
+# 2. It figures out which parts of the app changed (Auth API, Tasks API, or Frontend).
+# 3. It runs automated tests (pytest) BUT only for the parts that changed (saving time!).
+# 4. It builds Docker images and pushes them to Google Cloud ONLY if tests pass.
+#
+# WHY DO WE NEED THIS?
+# - "Continuous Integration" (CI) means merging code changes frequently.
+# - This automation ensures we don't accidentally break the app.
+# - It automatically packages our code so it's ready to deploy.
+# =================================================================================================
+
+# 'name' defines the name of the workflow as it appears in the "Actions" tab on GitHub.
+# Try to give it a descriptive name like "Build and Test" or "Production Release".
 name: CI
 
+# 'on' defines the TRIGGERS. These are the events that wake up the robot.
 on:
+  # Trigger 1: 'push'
+  # This runs whenever someone pushes code to the repository.
   push:
+    # 'branches' filters the push event.
+    # This workflow ONLY runs if the push is to the 'main' branch.
+    # WHY? You might want extensive testing on 'main' but simpler checks on feature branches.
+    # OTHER ATTRIBUTES: You can also use 'tags' or 'paths-ignore' here.
     branches:
       - main
+
+  # Trigger 2: 'workflow_dispatch'
+  # This allows you to MANUALLY trigger the workflow from the GitHub UI.
+  # WHY? Useful for re-running a build if it failed due to a flakey network, or for debugging.
   workflow_dispatch:
 
+# 'env' defines GLOBAL ENVIRONMENT VARIABLES.
+# These are like constants available to ALL jobs in this workflow.
+# Access them using ${{ env.VARIABLE_NAME }}.
 env:
+  # GCP_PROJECT_ID is a secret stored in GitHub Settings > Secrets.
+  # secrets are encrypted and safe to store. Never put passwords in plain text!
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+
+  # The region where we want to push our Docker images.
   REGION: us-central1
+
+  # The name of our repository in Google Artifact Registry.
   REPO_NAME: task-app-repo
 
+# 'jobs' is a list of independent tasks that the workflow will execute.
+# By default, jobs run significantly in PARALLEL (at the same time).
+# If you need them to run one after another, you must use 'needs'.
 jobs:
+  # ===============================================================================================
   # JOB 1: Detect Changes
+  # GOAL: Figure out which folders were modified in this commit.
+  # WHY? If we only changed the Frontend, we shouldn't waste time testing the Backend.
+  # ===============================================================================================
   changes:
+    # 'runs-on' specifies the Operating System (Runner) to use.
+    # 'ubuntu-latest' is the most common choice (Linux).
+    # OTHER OPTIONS: 'windows-latest', 'macos-latest', or self-hosted runners.
     runs-on: ubuntu-latest
+
+    # 'outputs' allows this job to pass data to FUTURE jobs.
+    # Here, we expose the true/false results from the 'filter' step below.
     outputs:
       auth-api: ${{ steps.filter.outputs.auth-api }}
       tasks-api: ${{ steps.filter.outputs.tasks-api }}
       frontend: ${{ steps.filter.outputs.frontend }}
+
+    # 'steps' is the sequence of actions this job performs.
     steps:
+      # Step 1: Checkout the code.
+      # This is a pre-made action 'actions/checkout' provided by GitHub.
+      # It downloads your repository code onto the runner so we can analyze it.
       - uses: actions/checkout@v3
+
+      # Step 2: Filter paths.
+      # We use a community action 'dorny/paths-filter' to check file changes.
+      # 'id: filter' gives this step a name so we can reference its outputs later (steps.filter.outputs...).
       - uses: dorny/paths-filter@v2
         id: filter
         with:
+          # We define three filters.
+          # If any file inside 'auth-api/**' changes, 'auth-api' output becomes 'true'.
           filters: |
             auth-api:
               - 'auth-api/**'
@@ -32,58 +97,93 @@ jobs:
             frontend:
               - 'frontend/**'
 
+  # ===============================================================================================
   # JOB 2: Run Tests (Conditional)
+  # GOAL: Run unit tests (pytest) for the Python APIs.
+  # ===============================================================================================
   test:
+    # 'needs: changes' tells GitHub: "Don't start this job until 'changes' is successfully done."
+    # This creates a dependency chain (Sequential execution).
     needs: changes
+
     runs-on: ubuntu-latest
+
     steps:
+      # We need the code again because each JOB runs on a fresh, empty virtual machine.
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # Set up Python environment.
+      # We ask for Python 3.10 specifically.
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
 
-      # Test Auth API (Only if changed)
+      # --- Test Auth API ---
+      # This step detects if it should run using the 'if' condition.
+      # 'needs.changes.outputs.auth-api' comes from the previous job.
+      # IF 'true', we install dependencies and run pytest.
       - name: Test Auth API
         if: needs.changes.outputs.auth-api == 'true'
         run: |
           pip install -r auth-api/requirements.txt
           pytest auth-api/
 
-      # Test Tasks API (Only if changed)
+      # --- Test Tasks API ---
+      # Similar logic for the Tasks API.
       - name: Test Tasks API
         if: needs.changes.outputs.tasks-api == 'true'
         run: |
           pip install -r tasks-api/requirements.txt
           pytest tasks-api/
 
+  # ===============================================================================================
   # JOB 3: Build and Push (Conditional + Safety Check)
+  # GOAL: Build Docker images and upload them to Google Artifact Registry.
+  # ===============================================================================================
   build-and-push:
+    # This job waits for BOTH 'changes' (to know what changed) AND 'test' (to ensure code verifies).
+    # If tests fail, this job will NOT run. This prevents broken code from being deployed.
     needs: [changes, test]
+
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # Authenticate with Google Cloud Platform (GCP).
+      # We use a Service Account Key stored in secrets.
+      # This is like logging in via the command line, but automated.
       - name: Google Auth
         uses: google-github-actions/auth@v1
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+      # Set up the 'gcloud' command-line tool.
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
         with:
           project_id: ${{ env.PROJECT_ID }}
 
+      # Configure Docker to authenticate with Google's registry.
+      # This ensures 'docker push' works later.
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
       # --- Auth API ---
+
+      # Logic: We want to skip building if the image already exists AND the code hasn't changed.
+      # But if the code CHANGED, we must rebuild.
+      # If the image is MISSING (maybe deleted manually), we must rebuild even if code hasn't changed.
+
+      # Step: Check if the image currently exists in the registry.
       - name: Check Auth API Image
         id: check-auth
         run: |
+          # 'docker manifest inspect' checks if an image exists without pulling it (fast).
+          # '2>&1' redirects errors to output so we can handle them cleanly.
           if docker manifest inspect ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:latest > /dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "Auth API image found."
@@ -92,13 +192,22 @@ jobs:
             echo "Auth API image NOT found."
           fi
 
+      # Step: Build and Push
+      # Condition: Run IF (Code Changed) OR (Image is Missing).
+      # '||' means OR.
       - name: Build and Push Auth API
         if: needs.changes.outputs.auth-api == 'true' || steps.check-auth.outputs.exists == 'false'
         run: |
+          # Build the Docker image.
+          # -t: Tags it with the registry URL.
+          # -f: Specifies the Dockerfile path.
           docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:latest -f auth-api/Dockerfile ./auth-api
+
+          # Push the image to the cloud.
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:latest
 
       # --- Tasks API ---
+      # Repeat the same logic for Tasks API
       - name: Check Tasks API Image
         id: check-tasks
         run: |
@@ -117,6 +226,7 @@ jobs:
           docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/tasks-api:latest
 
       # --- Frontend ---
+      # Repeat the same logic for Frontend
       - name: Check Frontend Image
         id: check-frontend
         run: |

@@ -1,6 +1,33 @@
+# =================================================================================================
+# KUBERNETES MANIFEST: Namespace
+# =================================================================================================
+# WELCOME STUDENTS!
+# This is where we start. A "Namespace" in Kubernetes is like a folder or a workspace.
+# It allows you to group related resources together.
+#
+# WHY USE NAMESPACES?
+# 1. Organization: Keep your "Task App" separate from your "Chat App".
+# 2. Isolation: If you delete the namespace, EVERYTHING inside it is deleted.
+# 3. Access Control: You can give team members access to only specific namespaces.
+#
+# ANALOGY:
+# If the Kubernetes cluster is a "Hard Drive", a Namespace is a "Folder".
+# =================================================================================================
+
+# 'apiVersion' tells Kubernetes which version of the API schema we are using.
+# 'v1' is the core, stable API version for basic things like Pods, Services, and Namespaces.
 apiVersion: v1
+
+# 'kind' specifies what type of object we are creating.
 kind: Namespace
+
+# 'metadata' contains data ABOUT the object, not the object itself.
 metadata:
+  # 'name' is the unique identifier for this namespace.
+  # COMMAND: You will use this name later: 'kubectl get pods -n task-app'
   name: task-app
+
+  # 'labels' are tags (key-value pairs) attached to the object.
+  # USE CASE: You can filter objects by labels. e.g., 'kubectl get all -l name=task-app'
   labels:
     name: task-app

@@ -1,3 +1,17 @@
+# =================================================================================================
+# KUBERNETES MANIFEST: Auth API
+# =================================================================================================
+# WELCOME STUDENTS!
+# This file deploys the Authentication Service.
+#
+# KEY CONCEPTS:
+# 1. Stateless Deployment: We run multiple copies (Replicas) for high availability.
+# 2. Environment Variables: Connecting to the Database using Secrets.
+# 3. Connection Strings: Note how 'DB_HOST' is just "db". This is Kubernetes DNS magic!
+# =================================================================================================
+
+# --- SECRET ---
+# Holds the JWT Secret Key (for signing tokens) and DB credentials.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -5,18 +19,23 @@ metadata:
   namespace: task-app
 type: Opaque
 stringData:
-  JWT_SECRET_KEY: changeme  # This will be updated by the workflow
+  JWT_SECRET_KEY: changeme # Replaced by CI/CD
   DB_USER: postgres
-  DB_PASSWORD: changeme  # This will be updated by the workflow
-  DB_HOST: db
+  DB_PASSWORD: changeme # Replaced by CI/CD
+  DB_HOST: db # Matches the Service name in 'database.yml'
   DB_NAME: tasksdb
+
 ---
+# --- DEPLOYMENT ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: auth-api
   namespace: task-app
 spec:
+  # REPLICAS: 2
+  # We run 2 copies. If one crashes, the other keeps serving traffic.
+  # If we update the app, Kubernetes does a "Rolling Update" (updates one by one).
   replicas: 2
   selector:
     matchLabels:
@@ -28,8 +47,16 @@ spec:
     spec:
       containers:
         - name: auth-api
+          # IMAGE:
+          # This placeholder 'PROJECT_ID' is replaced by our CI/CD script (sed command).
           image: us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/auth-api:latest
+
+          # imagePullPolicy: Always
+          # Forces Kubernetes to check if a newer version of the image exists,
+          # even if it already has one cached. Good for development/latest tags.
           imagePullPolicy: Always
+
+          # ENV VARS: Reference the secrets above.
           env:
             - name: JWT_SECRET_KEY
               valueFrom:
@@ -56,9 +83,11 @@ spec:
                 secretKeyRef:
                   name: auth-api-secrets
                   key: DB_NAME
+
           ports:
             - containerPort: 8000
               name: http
+
           resources:
             requests:
               memory: "128Mi"
@@ -66,6 +95,11 @@ spec:
             limits:
               memory: "256Mi"
               cpu: "200m"
+
+          # LIVENESS & READINESS PROBES (HTTP)
+          # Instead of running a command, we make an HTTP request to '/health'.
+          # If the API returns 200 OK, it's healthy.
+          # If it returns 500 or hangs, Kubernetes restarts the pod.
           livenessProbe:
             httpGet:
               path: /health
@@ -78,7 +112,9 @@ spec:
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 5
+
 ---
+# --- SERVICE ---
 apiVersion: v1
 kind: Service
 metadata:
@@ -89,6 +125,6 @@ spec:
     app: auth-api
   ports:
     - protocol: TCP
-      port: 8000
-      targetPort: 8000
+      port: 8000 # Other pods call 'http://auth-api:8000'
+      targetPort: 8000 # Container listens on 8000
   type: ClusterIP

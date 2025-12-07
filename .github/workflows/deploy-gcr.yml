@@ -1,12 +1,32 @@
+# =================================================================================================
+# GITHUB ACTIONS WORKFLOW: Deploy to Cloud Run
+# =================================================================================================
+# WELCOME STUDENTS!
+# This workflow teaches you how to deploy to "Google Cloud Run".
+#
+# WHAT IS CLOUD RUN?
+# Cloud Run is a "Serverless" platform. It runs Docker containers.
+# You don't manage servers, VMs, or clusters. You just give it a container, and it runs it.
+# It automatically scales up (adds copies) when traffic is high and scales down to zero (paying nothing) when idle.
+#
+# HOW IS THIS DIFFERENT FROM CI?
+# The CI workflow (Continuous Integration) *Builds* and *Tests* the code.
+# This workflow *Deploys* it to the live internet.
+# =================================================================================================
+
 name: Deploy to Cloud Run
 
 on:
+  # 'workflow_dispatch' means this workflow is ONLY triggered manually by a human clicking a button.
+  # WHY? Deploying to production is a risky operation. You often want human approval.
   workflow_dispatch:
+    # 'inputs' lets the human provide settings when they click "Run workflow".
     inputs:
       image_tag:
-        description: 'Image tag to deploy (default: latest)'
+        description: "Image tag to deploy (default: latest)"
         required: false
-        default: 'latest'
+        default: "latest"
+        # WHY? Sometimes 'latest' is broken. This lets us deploy an older, stable version (e.g., 'v1.0.2').
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -20,6 +40,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # Authenticate with Google Cloud again.
+      # Needed to give us permission to deploy new services.
       - name: Google Auth
         uses: google-github-actions/auth@v1
         with:
@@ -30,21 +52,35 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-
       # --- Deploy Backends ---
+      # We deploy the APIs first so they are ready when the Frontend tries to talk to them.
+
       - name: Deploy Auth API
         id: deploy-auth
+        # We use a specialized action for Cloud Run.
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: auth-api
+          # IMAGE: We construct the full URL to the image we built in the CI workflow.
+          # Note how we use ${{ github.event.inputs.image_tag }} to use the user's choice.
           image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/auth-api:${{ github.event.inputs.image_tag || 'latest' }}
           region: ${{ env.REGION }}
-          flags: '--allow-unauthenticated --add-cloudsql-instances=${{ secrets.INSTANCE_CONNECTION_NAME }} --project ${{ env.PROJECT_ID }}'
+
+          # FLAGS:
+          # --allow-unauthenticated: Makes the API public (anyone on the internet can call it).
+          # --add-cloudsql-instances: Connects this container to a hosted Google Cloud SQL database.
+          flags: "--allow-unauthenticated --add-cloudsql-instances=${{ secrets.INSTANCE_CONNECTION_NAME }} --project ${{ env.PROJECT_ID }}"
+
+          # ENV_VARS:
+          # These are injected into the container at Runtime.
+          # The Python code reads these using os.environ.get('DB_PASSWORD').
           env_vars: |
             DB_USER=postgres
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
             DB_NAME=tasksdb
             JWT_SECRET_KEY=${{ secrets.JWT_SECRET_KEY }}
+
+            # Cloud SQL specific connection settings
             INSTANCE_CONNECTION_NAME=${{ secrets.INSTANCE_CONNECTION_NAME }}
             DB_HOST=/cloudsql/${{ secrets.INSTANCE_CONNECTION_NAME }}
 
@@ -55,7 +91,7 @@ jobs:
           service: tasks-api
           image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/tasks-api:${{ github.event.inputs.image_tag || 'latest' }}
           region: ${{ env.REGION }}
-          flags: '--allow-unauthenticated --add-cloudsql-instances=${{ secrets.INSTANCE_CONNECTION_NAME }} --project ${{ env.PROJECT_ID }}'
+          flags: "--allow-unauthenticated --add-cloudsql-instances=${{ secrets.INSTANCE_CONNECTION_NAME }} --project ${{ env.PROJECT_ID }}"
           env_vars: |
             DB_USER=postgres
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
@@ -71,7 +107,13 @@ jobs:
           service: frontend
           image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/frontend:${{ github.event.inputs.image_tag || 'latest' }}
           region: ${{ env.REGION }}
-          flags: '--allow-unauthenticated --project ${{ env.PROJECT_ID }}'
+          flags: "--allow-unauthenticated --project ${{ env.PROJECT_ID }}"
+
+          # DYNAMIC CONFIGURATION:
+          # The Frontend needs to know where the APIs are.
+          # Cloud Run assigns a new URL when you deploy a new service.
+          # We capture the output of the previous steps (${{ steps.deploy-auth.outputs.url }})
+          # and inject them into the Frontend.
           env_vars: |
             AUTH_API_URL=${{ steps.deploy-auth.outputs.url }}/
             TASKS_API_URL=${{ steps.deploy-tasks.outputs.url }}/

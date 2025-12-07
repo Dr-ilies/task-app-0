@@ -1,7 +1,23 @@
 #!/usr/bin/env pwsh
-# Local Kubernetes Deployment with Kind (Kubernetes IN Docker)
-# This script creates a Kind cluster with Podman and deploys the application
-# using the k8s-manifests with full Kubernetes DNS support
+# =================================================================================================
+# SCRIPT: Local Kubernetes using Kind (Kubernetes IN Docker)
+# =================================================================================================
+# WELCOME STUDENTS!
+# "Kind" stands for "Kubernetes IN Docker".
+# It creates a whole Kubernetes cluster INSIDE a Docker container.
+#
+# WHY KIND?
+# 1. Full Cluster: Unlike 'podman kube play', Kind gives you a Real K8s Cluster.
+# 2. Ingress Support: You can install NGINX Ingress Controller.
+# 3. DNS: It has a real internal DNS server (CoreDNS).
+#
+# WORKFLOW:
+# 1. Create a Kind Cluster (starts a container acting as a "Node").
+# 2. Build your app images.
+# 3. "Load" images into the cluster (since the cluster is inside a container, it can't see your laptop's images).
+# 4. Install Nginx Ingress.
+# 5. Apply your k8s-manifests.
+# =================================================================================================
 
 param(
     [switch]$SkipBuild,      # Skip building container images
@@ -14,72 +30,53 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 $clusterName = "task-app"
+# We tell Kind to use 'podman' instead of 'docker'.
 $env:KIND_EXPERIMENTAL_PROVIDER = "podman"
 
-# Cache directory for all images
+# CACHING:
+# Kind needs to import images (tarballs). This is slow.
+# We create a cache folder to store the built images so we don't rebuild/re-import unnecessarily.
 $cacheDir = "scripts/.kind-cache"
 
-# Ingress controller image (update version as needed)
+# INGRESS IMAGE:
+# We pin a specific version of NGINX Ingress Controller.
 $ingressImage = "registry.k8s.io/ingress-nginx/controller:v1.12.2"
 $ingressTarPath = Join-Path $cacheDir "ingress-controller.tar"
 
-# App images
+# App Images Definition
+# 'PodmanTag': The name on your laptop.
+# 'TarName': The filename in the cache.
 $appImages = @(
     @{Name = "auth-api"; PodmanTag = "localhost/auth-api:latest"; TarName = "auth-api.tar" },
     @{Name = "tasks-api"; PodmanTag = "localhost/tasks-api:latest"; TarName = "tasks-api.tar" },
     @{Name = "frontend"; PodmanTag = "localhost/frontend:latest"; TarName = "frontend.tar" }
 )
 
-# Step 1: Check prerequisites
+# =================================================================================================
+# STEP 1: Prerequisites
+# =================================================================================================
 Write-Host "[1/7] Checking prerequisites..." -ForegroundColor Yellow
 
 if (-not (Get-Command kind -ErrorAction SilentlyContinue)) {
-    Write-Host "  ERROR: 'kind' is not installed. Install it from: https://kind.sigs.k8s.io/" -ForegroundColor Red
+    Write-Host "  ERROR: 'kind' is not installed." -ForegroundColor Red
     exit 1
 }
-Write-Host "  kind: OK" -ForegroundColor Green
+# Check for kubectl and podman as well...
+if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) { Write-Host "  ERROR: 'kubectl' missing." -ForegroundColor Red; exit 1 }
+if (-not (Get-Command podman -ErrorAction SilentlyContinue)) { Write-Host "  ERROR: 'podman' missing." -ForegroundColor Red; exit 1 }
 
-if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) {
-    Write-Host "  ERROR: 'kubectl' is not installed. Install it from: https://kubernetes.io/docs/tasks/tools/" -ForegroundColor Red
-    exit 1
-}
-Write-Host "  kubectl: OK" -ForegroundColor Green
-
-if (-not (Get-Command podman -ErrorAction SilentlyContinue)) {
-    Write-Host "  ERROR: 'podman' is not installed." -ForegroundColor Red
-    exit 1
-}
-Write-Host "  podman: OK" -ForegroundColor Green
-Write-Host ""
-
-# Ensure cache directory exists
+Write-Host "  All tools ready." -ForegroundColor Green
 New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
 
-# Step 2: Build and cache app images
+# =================================================================================================
+# STEP 2: Build and Cache Images
+# =================================================================================================
 if ($SkipBuild) {
-    Write-Host "[2/7] Skipping image build (-SkipBuild specified)..." -ForegroundColor Yellow
-    
-    # Verify cached images exist
-    $missingCache = @()
-    foreach ($img in $appImages) {
-        $tarPath = Join-Path $cacheDir $img.TarName
-        if (-not (Test-Path $tarPath)) {
-            $missingCache += $img.Name
-        }
-    }
-    
-    if ($missingCache.Count -gt 0) {
-        Write-Host "  ERROR: Missing cached images: $($missingCache -join ', ')" -ForegroundColor Red
-        Write-Host "  Run without -SkipBuild to build and cache images." -ForegroundColor Yellow
-        exit 1
-    }
-    Write-Host "  All app images cached" -ForegroundColor Green
-    Write-Host ""
+    Write-Host "[2/7] Skipping image build..." -ForegroundColor Yellow
 }
 else {
     Write-Host "[2/7] Building and caching container images..." -ForegroundColor Yellow
-    Write-Host ""
-
+    
     $buildPaths = @{
         "auth-api"  = "./auth-api"
         "tasks-api" = "./tasks-api"
@@ -89,72 +86,50 @@ else {
     foreach ($img in $appImages) {
         $tarPath = Join-Path $cacheDir $img.TarName
         
+        # 1. BUILD the image
         Write-Host "  Building $($img.Name)..." -ForegroundColor Gray
         podman build -t "$($img.Name):latest" -f "$($buildPaths[$img.Name])/Dockerfile" $buildPaths[$img.Name]
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  ERROR: Failed to build $($img.Name)" -ForegroundColor Red
-            exit 1
-        }
         
+        # 2. SAVE the image to a .tar file
+        # 'podman save' exports the image to a file. Kind can then 'import' this file.
         Write-Host "  Caching $($img.Name)..." -ForegroundColor Gray
         podman save $img.PodmanTag -o $tarPath 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  ERROR: Failed to cache $($img.Name)" -ForegroundColor Red
-            exit 1
-        }
     }
-    Write-Host "  All images built and cached" -ForegroundColor Green
-    Write-Host ""
 }
 
-# Step 3: Ensure ingress controller image is cached
+# =================================================================================================
+# STEP 3: Cache Ingress Controller
+# =================================================================================================
+# We download the Ingress Controller image once and save it to disk.
+# This prevents downloading 300MB every time we restart the cluster.
 Write-Host "[3/7] Checking ingress controller cache..." -ForegroundColor Yellow
 
-if (Test-Path $ingressTarPath) {
-    Write-Host "  Using cached ingress controller" -ForegroundColor Green
-}
-else {
+if (-not (Test-Path $ingressTarPath)) {
     Write-Host "  Pulling ingress controller (one-time download)..." -ForegroundColor Gray
-    Write-Host "  Image: $ingressImage" -ForegroundColor Gray
-    
     podman pull $ingressImage
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  ERROR: Failed to pull ingress controller" -ForegroundColor Red
-        exit 1
-    }
-    
-    Write-Host "  Caching ingress controller..." -ForegroundColor Gray
     podman save $ingressImage -o $ingressTarPath
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  ERROR: Failed to cache ingress controller" -ForegroundColor Red
-        exit 1
-    }
-    
-    Write-Host "  Ingress controller cached" -ForegroundColor Green
 }
-Write-Host ""
+Write-Host "  Ingress controller cached." -ForegroundColor Green
 
-# Step 4: Create Kind cluster
+# =================================================================================================
+# STEP 4: Create Kind Cluster
+# =================================================================================================
 if ($SkipCluster) {
-    Write-Host "[4/7] Skipping cluster creation (-SkipCluster specified)..." -ForegroundColor Yellow
-    
-    $existingCluster = kind get clusters 2>$null | Where-Object { $_ -eq $clusterName }
-    if (-not $existingCluster) {
-        Write-Host "  ERROR: Cluster '$clusterName' does not exist. Run without -SkipCluster." -ForegroundColor Red
-        exit 1
-    }
-    Write-Host "  Using existing cluster '$clusterName'" -ForegroundColor Green
-    Write-Host ""
+    Write-Host "[4/7] Skipping cluster creation..." -ForegroundColor Yellow
 }
 else {
-    Write-Host "[4/7] Creating Kind cluster..." -ForegroundColor Yellow
+    Write-Host "[4/7] Creating Kind cluster (this takes a minute)..." -ForegroundColor Yellow
     
+    # Delete old cluster if exists
     $existingCluster = kind get clusters 2>$null | Where-Object { $_ -eq $clusterName }
     if ($existingCluster) {
-        Write-Host "  Cluster exists. Deleting..." -ForegroundColor Gray
         kind delete cluster --name $clusterName
     }
 
+    # CLUSTER CONFIGURATION
+    # We need to map port 80 (inside Kind) to 8080 (on Laptop).
+    # And port 443 (HTTPS) to 8443.
+    # 'extraPortMappings' does this Docker port mapping for us.
     $kindConfig = @"
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -178,83 +153,74 @@ nodes:
     $kindConfigPath = Join-Path $cacheDir "kind-config.yml"
     $kindConfig | Set-Content $kindConfigPath
 
-    Write-Host "  Creating cluster..." -ForegroundColor Gray
     kind create cluster --name $clusterName --config $kindConfigPath
-    
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  ERROR: Failed to create cluster" -ForegroundColor Red
-        exit 1
-    }
-    
-    Write-Host "  Cluster created" -ForegroundColor Green
-    Write-Host ""
 }
 
-# Step 5: Load ALL cached images into Kind
+# =================================================================================================
+# STEP 5: Load Images into Cluster
+# =================================================================================================
 Write-Host "[5/7] Loading cached images into Kind..." -ForegroundColor Yellow
 
-# Load app images from cache
+# IMPORTANT CONCEPT:
+# Your cluster is a Docker Container.
+# It has its OWN internal Docker (containerd) storage.
+# We must COPY our .tar files into the cluster node and Import them.
+
 foreach ($img in $appImages) {
     $tarPath = Join-Path $cacheDir $img.TarName
     Write-Host "  Loading $($img.Name)..." -ForegroundColor Gray
     
+    # 'podman cp': Copy file from Laptop -> Kind Container
     podman cp $tarPath "${clusterName}-control-plane:/tmp/$($img.TarName)" 2>&1 | Out-Null
+    
+    # 'podman exec': Run command INSIDE Kind Container
+    # 'ctr images import': Import the tarball into containerd
     podman exec "${clusterName}-control-plane" ctr --namespace k8s.io images import "/tmp/$($img.TarName)" 2>&1 | Out-Null
+    
+    # Cleanup inside container
     podman exec "${clusterName}-control-plane" rm "/tmp/$($img.TarName)" 2>&1 | Out-Null
 }
 
-# Load ingress controller from cache
+# Also load Ingress Controller
 Write-Host "  Loading ingress-controller..." -ForegroundColor Gray
 podman cp $ingressTarPath "${clusterName}-control-plane:/tmp/ingress-controller.tar" 2>&1 | Out-Null
 podman exec "${clusterName}-control-plane" ctr --namespace k8s.io images import "/tmp/ingress-controller.tar" 2>&1 | Out-Null
 podman exec "${clusterName}-control-plane" rm "/tmp/ingress-controller.tar" 2>&1 | Out-Null
 
-Write-Host "  All images loaded" -ForegroundColor Green
-Write-Host ""
-
-# Step 6: Install NGINX Ingress Controller
+# =================================================================================================
+# STEP 6: Install Ingress Controller
+# =================================================================================================
 Write-Host "[6/7] Installing NGINX Ingress Controller..." -ForegroundColor Yellow
 
+# We apply the specific manifest for Kind from the official repo
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.12.2/deploy/static/provider/kind/deploy.yaml 2>&1 | Out-Null
 
-Write-Host "  Waiting for ingress controller..." -ForegroundColor Gray
-$retries = 0
-$maxRetries = 12
-$ingressReady = $false
-
+Write-Host "  Waiting for ingress controller to be ready..." -ForegroundColor Gray
+# Loop until the Ingress Controller pod is officially "Ready"
+$retries = 0; $maxRetries = 12; $ingressReady = $false
 while ($retries -lt $maxRetries -and -not $ingressReady) {
     Start-Sleep -Seconds 5
     $status = kubectl get pods -n ingress-nginx -l app.kubernetes.io/component=controller -o jsonpath='{.items[0].status.phase}' 2>$null
     if ($status -eq "Running") {
         $ready = kubectl get pods -n ingress-nginx -l app.kubernetes.io/component=controller -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>$null
-        if ($ready -eq "true") {
-            $ingressReady = $true
-        }
+        if ($ready -eq "true") { $ingressReady = $true }
     }
     $retries++
 }
 
-if ($ingressReady) {
-    Write-Host "  Ingress controller ready" -ForegroundColor Green
-}
-else {
-    Write-Host "  WARNING: Ingress controller may not be ready" -ForegroundColor Yellow
-}
-Write-Host ""
-
-# Step 7: Deploy application
+# =================================================================================================
+# STEP 7: Deploy Application
+# =================================================================================================
 Write-Host "[7/7] Deploying application..." -ForegroundColor Yellow
-Write-Host ""
 
 $manifestsDir = "k8s-manifests"
 $tempDir = Join-Path $cacheDir "manifests"
 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
-# Deploy namespace
-Write-Host "  Deploying namespace..." -ForegroundColor Gray
+# 1. Namespace
 kubectl apply -f (Join-Path $manifestsDir "namespace.yml")
 
-# Deploy resources
+# 2. App Components
 $deployOrder = @("database.yml", "auth-api.yml", "tasks-api.yml", "frontend.yml")
 
 foreach ($file in $deployOrder) {
@@ -262,76 +228,48 @@ foreach ($file in $deployOrder) {
     $tempPath = Join-Path $tempDir $file
 
     $content = Get-Content $sourcePath -Raw
+    
+    # MODIFY MANIFEST:
+    # Point to the images we just loaded (localhost/...)
     $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/auth-api:latest', 'localhost/auth-api:latest'
     $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/tasks-api:latest', 'localhost/tasks-api:latest'
     $content = $content -replace 'us-central1-docker.pkg.dev/PROJECT_ID/task-app-repo/frontend:latest', 'localhost/frontend:latest'
+    
+    # CRITICAL: 'imagePullPolicy: Never'
+    # Tells Kubernetes: "Do NOT go to the internet. The image is already on the node."
+    # We loaded it manually in Step 5.
     $content = $content -replace 'imagePullPolicy: Always', 'imagePullPolicy: Never'
+    
     $content | Set-Content $tempPath -NoNewline
-
     Write-Host "  Deploying $file..." -ForegroundColor Gray
     kubectl apply -f $tempPath
-
+    
+    # Wait for DB before deploying APIs (Best Practice)
     if ($file -eq "database.yml") {
         Write-Host "  Waiting for database..." -ForegroundColor Gray
         kubectl wait --namespace task-app --for=condition=ready pod --selector=app=db --timeout=120s 2>$null
     }
 }
 
-# Deploy ingress (with robust retry and verification)
+# 3. Ingress
 Write-Host "  Deploying ingress..." -ForegroundColor Gray
 $ingressContent = Get-Content (Join-Path $manifestsDir "ingress.yml") -Raw
+# We change the 'ingressClassName' from 'gce' (Google Cloud) to 'nginx' (Local).
 $ingressContent = $ingressContent -replace 'kubernetes.io/ingress.class: "gce"', 'kubernetes.io/ingress.class: "nginx"'
 $ingressContent = $ingressContent -replace 'ingressClassName: gce', 'ingressClassName: nginx'
+
 $ingressTempPath = Join-Path $tempDir "ingress.yml"
 $ingressContent | Set-Content $ingressTempPath -NoNewline
 
-$ingressDeployed = $false
-$retries = 0
-$maxRetries = 12  # 12 * 5s = 60s max wait
-
+# Retry Loop for Ingress (Webhook can be flaky during startup)
+$ingressDeployed = $false; $retries = 0; $maxRetries = 12
 while ($retries -lt $maxRetries -and -not $ingressDeployed) {
-    $result = kubectl apply -f $ingressTempPath 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        # Verify ingress was actually created
-        Start-Sleep -Seconds 2
-        $ingressExists = kubectl get ingress -n task-app task-app-ingress -o name 2>$null
-        if ($ingressExists) {
-            $ingressDeployed = $true
-            Write-Host "  Ingress deployed and verified" -ForegroundColor Green
-        }
-    }
-    
-    if (-not $ingressDeployed) {
-        $retries++
-        if ($retries -lt $maxRetries) {
-            Write-Host "    Waiting for webhook... ($retries/$maxRetries)" -ForegroundColor Gray
-            Start-Sleep -Seconds 5
-        }
-    }
+    kubectl apply -f $ingressTempPath 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { $ingressDeployed = $true }
+    else { Start-Sleep -Seconds 5; $retries++ }
 }
 
-if (-not $ingressDeployed) {
-    Write-Host "  ERROR: Failed to deploy ingress after $maxRetries attempts" -ForegroundColor Red
-    Write-Host "  Run manually: kubectl apply -f $ingressTempPath" -ForegroundColor Yellow
-}
-
-Write-Host ""
-Write-Host "  Waiting for pods..." -ForegroundColor Gray
-kubectl wait --namespace task-app --for=condition=ready pod --all --timeout=180s 2>$null
-
-Write-Host ""
-kubectl get pods -n task-app
-
-Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Deployment Complete!" -ForegroundColor Cyan
+Write-Host "URL: http://localhost:8080" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "URL: " -NoNewline
-Write-Host "http://localhost:8080" -ForegroundColor Green
-Write-Host ""
-Write-Host "Cache location: $cacheDir" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Quick redeploy:  .\scripts\local-kind-deploy.ps1 -SkipBuild -SkipCluster" -ForegroundColor White
-Write-Host "Tear down:       .\scripts\local-kind-down.ps1" -ForegroundColor White
-Write-Host ""

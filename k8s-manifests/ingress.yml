@@ -1,19 +1,46 @@
+# =================================================================================================
+# KUBERNETES MANIFEST: Ingress (The Entrypoint)
+# =================================================================================================
+# WELCOME STUDENTS!
+# "Ingress" is the layer that exposes your HTTP/HTTPS routes from outside the cluster to
+# services within the cluster.
+#
+# ANALOGY:
+# Services are like office phone extensions.
+# Ingress is the "Receptionist" who routes external calls to the correct extension.
+#
+# WHAT DOES THIS DO?
+# 1. It provisions an external Load Balancer (providing a Public IP).
+# 2. It sets up routing rules (e.g., "all traffic usually goes to frontend").
+# =================================================================================================
+
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: task-app-ingress
   namespace: task-app
   annotations:
+    # This annotation tells Google Cloud to create an "Application Load Balancer" (HTTP/S LB).
     kubernetes.io/ingress.class: "gce"
-    # kubernetes.io/ingress.global-static-ip-name: "task-app-ip"  # Optional: Uncomment if you have a reserved static IP
-    # networking.gke.io/managed-certificates: "task-app-cert"  # Optional: Uncomment if you have a managed certificate
+
+    # ADVANCED TOPICS (Commented out):
+    # Static IP: If you paid for a fixed IP address, you link it here.
+    # kubernetes.io/ingress.global-static-ip-name: "task-app-ip"
+
+    # HTTPS/SSL: If you want a green padlock, you use Managed Certificates.
+    # networking.gke.io/managed-certificates: "task-app-cert"
+
 spec:
   ingressClassName: gce
+
+  # RULES define how to route traffic.
   rules:
     - http:
         paths:
-          # Route ALL traffic to frontend (Nginx)
-          # Nginx handles internal routing to /auth/ and /api/
+          # Rule 1: Route "/" (everything) to the 'frontend' service.
+          # Unlike microservices where we might route '/api' -> backend,
+          # here our Frontend (Nginx) is ALREADY doing that proxying internally.
+          # So we just send EVERYTHING to the Frontend.
           - path: /
             pathType: Prefix
             backend:
@@ -21,9 +48,17 @@ spec:
                 name: frontend
                 port:
                   number: 80
+
 ---
-# Optional: Managed Certificate for HTTPS
-# Uncomment if you have a domain name
+# =================================================================================================
+# OPTIONAL: MANAGED CERTIFICATE (HTTPS)
+# =================================================================================================
+# This is how you would set up SSL (HTTPS) on Google Cloud.
+# 1. Buy a domain (example.com).
+# 2. Create this managed certificate resource.
+# 3. Add the annotation to the Ingress above.
+# 4. Google acts as the "Certificate Authority" and automatically provisions/renews SSL for you.
+
 # apiVersion: networking.gke.io/v1
 # kind: ManagedCertificate
 # metadata:
