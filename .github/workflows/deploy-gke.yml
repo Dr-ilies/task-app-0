@@ -1,7 +1,7 @@
 # =================================================================================================
 # GITHUB ACTIONS WORKFLOW: Deploy to GKE (Kubernetes)
 # =================================================================================================
-# WELCOME STUDENTS! test
+# WELCOME STUDENTS!
 # This workflow deploys the application to "Google Kubernetes Engine" (GKE).
 #
 # WHAT IS KUBERNETES AND GKE?
